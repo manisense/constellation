@@ -416,7 +416,7 @@ AS $$
 DECLARE
     current_user_id UUID := auth.uid();
     new_constellation_id UUID;
-    invite_code TEXT;
+    new_invite_code TEXT;
 BEGIN
     IF current_user_id IS NULL THEN
         RETURN jsonb_build_object(
@@ -439,7 +439,7 @@ BEGIN
     -- Create a new constellation
     INSERT INTO constellations (name, created_by)
     VALUES (constellation_name, current_user_id)
-    RETURNING id, invite_code INTO new_constellation_id, invite_code;
+    RETURNING id, constellations.invite_code INTO new_constellation_id, new_invite_code;
     
     -- Add the user as a member
     INSERT INTO constellation_members (constellation_id, user_id)
@@ -449,7 +449,7 @@ BEGIN
         'success', true,
         'message', 'Constellation created successfully',
         'constellation_id', new_constellation_id,
-        'invite_code', invite_code
+        'invite_code', new_invite_code
     );
 EXCEPTION
     WHEN OTHERS THEN
@@ -491,9 +491,9 @@ BEGIN
     END IF;
     
     -- Find the constellation with the given invite code
-    SELECT id INTO constellation_id
-    FROM constellations
-    WHERE constellations.invite_code = join_constellation_with_code.invite_code;
+    SELECT c.id INTO constellation_id
+    FROM constellations c
+    WHERE c.invite_code = join_constellation_with_code.invite_code;
     
     IF constellation_id IS NULL THEN
         RETURN jsonb_build_object(

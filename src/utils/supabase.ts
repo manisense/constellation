@@ -227,24 +227,175 @@ export const getUserConstellationStatus = async () => {
 
 export const createConstellation = async (name: string) => {
   try {
+    // First try using the RPC function
     const { data, error } = await supabase.rpc('create_new_constellation', {
       constellation_name: name
     });
-    if (error) throw error;
+    
+    if (error) {
+      console.error("RPC error:", error);
+      
+      // If we get the ambiguous invite_code error, try a direct approach
+      if (error.message && error.message.includes("invite_code\" is ambiguous")) {
+        console.log("Falling back to direct SQL approach");
+        
+        // Step 1: Create the constellation with a name
+        const { data: constData, error: constError } = await supabase
+          .from('constellations')
+          .insert({
+            name: name,
+            created_by: (await supabase.auth.getUser()).data.user?.id
+          })
+          .select('id, invite_code')
+          .single();
+          
+        if (constError) {
+          console.error("Direct constellation creation error:", constError);
+          throw constError;
+        }
+        
+        // Step 2: Add the user as a member
+        const { error: memberError } = await supabase
+          .from('constellation_members')
+          .insert({
+            constellation_id: constData.id,
+            user_id: (await supabase.auth.getUser()).data.user?.id
+          });
+          
+        if (memberError) {
+          console.error("Member creation error:", memberError);
+          throw memberError;
+        }
+        
+        return { 
+          data: {
+            success: true,
+            message: 'Constellation created successfully',
+            constellation_id: constData.id,
+            invite_code: constData.invite_code
+          }, 
+          error: null 
+        };
+      }
+      
+      throw error;
+    }
+    
     return { data, error: null };
   } catch (error) {
+    console.error("Create constellation error:", error);
     return { data: null, error };
   }
 };
 
 export const joinConstellationWithCode = async (inviteCode: string) => {
   try {
+    // First try using the RPC function
     const { data, error } = await supabase.rpc('join_constellation_with_code', {
       invite_code: inviteCode
     });
-    if (error) throw error;
+    
+    if (error) {
+      console.error("RPC error:", error);
+      
+      // If we get an error, try a direct approach
+      if (error.message) {
+        console.log("Falling back to direct SQL approach");
+        
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        
+        // Step 1: Check if user is already in a constellation
+        const { data: existingMember, error: memberCheckError } = await supabase
+          .from('constellation_members')
+          .select('id')
+          .eq('user_id', userId);
+          
+        if (memberCheckError) {
+          console.error("Member check error:", memberCheckError);
+          throw memberCheckError;
+        }
+        
+        if (existingMember && existingMember.length > 0) {
+          return { 
+            data: {
+              success: false,
+              message: 'User is already in a constellation'
+            }, 
+            error: null 
+          };
+        }
+        
+        // Step 2: Find the constellation with the given invite code
+        const { data: constData, error: constError } = await supabase
+          .from('constellations')
+          .select('id')
+          .eq('invite_code', inviteCode)
+          .single();
+          
+        if (constError) {
+          if (constError.code === 'PGRST116') {
+            return { 
+              data: {
+                success: false,
+                message: 'Invalid invite code'
+              }, 
+              error: null 
+            };
+          }
+          console.error("Constellation lookup error:", constError);
+          throw constError;
+        }
+        
+        // Step 3: Check if the constellation already has 2 members
+        const { data: memberCount, error: countError } = await supabase
+          .from('constellation_members')
+          .select('id')
+          .eq('constellation_id', constData.id);
+          
+        if (countError) {
+          console.error("Member count error:", countError);
+          throw countError;
+        }
+        
+        if (memberCount && memberCount.length >= 2) {
+          return { 
+            data: {
+              success: false,
+              message: 'Constellation already has maximum members'
+            }, 
+            error: null 
+          };
+        }
+        
+        // Step 4: Add the user as a member
+        const { error: joinError } = await supabase
+          .from('constellation_members')
+          .insert({
+            constellation_id: constData.id,
+            user_id: userId
+          });
+          
+        if (joinError) {
+          console.error("Join constellation error:", joinError);
+          throw joinError;
+        }
+        
+        return { 
+          data: {
+            success: true,
+            message: 'Successfully joined constellation',
+            constellation_id: constData.id
+          }, 
+          error: null 
+        };
+      }
+      
+      throw error;
+    }
+    
     return { data, error: null };
   } catch (error) {
+    console.error("Join constellation error:", error);
     return { data: null, error };
   }
 };
