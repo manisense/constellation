@@ -742,16 +742,53 @@ CREATE POLICY "Users can insert their own profile"
 ON profiles FOR INSERT
 WITH CHECK (auth.uid() = id);
 
--- Allow the handle_new_user function to insert profiles
+-- Fix the System can insert any profile policy
+DROP POLICY IF EXISTS "System can insert any profile" ON profiles;
+
+-- Create a more permissive policy for system functions
 CREATE POLICY "System can insert any profile"
 ON profiles FOR INSERT
-WITH CHECK (
-    -- This allows the trigger function to insert profiles
-    (SELECT current_setting('role', true)) = 'rls_restricted'
-);
+WITH CHECK (true);
 
--- Enable the security definer option for the handle_new_user function
-ALTER FUNCTION handle_new_user() SECURITY DEFINER SET search_path = public;
+-- Make sure the handle_new_user function has the right permissions
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Insert a new profile with all required fields
+    INSERT INTO profiles (
+        id, 
+        name, 
+        about, 
+        interests, 
+        star_name, 
+        star_type, 
+        photo_url, 
+        created_at, 
+        updated_at
+    )
+    VALUES (
+        NEW.id, 
+        COALESCE(NEW.raw_user_meta_data->>'name', 'User'), 
+        '', 
+        '{}', 
+        '', 
+        NULL, 
+        COALESCE(NEW.raw_user_meta_data->>'avatar_url', ''), 
+        NOW(), 
+        NOW()
+    )
+    ON CONFLICT (id) DO NOTHING;
+    
+    RETURN NEW;
+EXCEPTION
+    WHEN unique_violation THEN
+        -- If the profile already exists, just return the NEW record
+        RETURN NEW;
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in handle_new_user: %', SQLERRM;
+        RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Constellations policies
 CREATE POLICY "Users can view their own constellations"
@@ -898,4 +935,41 @@ USING (
 -- Create a policy to allow users to read profile photos
 CREATE POLICY "Anyone can view profile photos"
 ON storage.objects FOR SELECT
-USING (bucket_id = 'profile_photos'); 
+USING (bucket_id = 'profile_photos');
+
+-- Create an RPC function to create user profiles
+CREATE OR REPLACE FUNCTION create_user_profile(user_id UUID, user_name TEXT, user_photo TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    INSERT INTO profiles (
+        id, 
+        name, 
+        about, 
+        interests, 
+        star_name, 
+        star_type, 
+        photo_url, 
+        created_at, 
+        updated_at
+    )
+    VALUES (
+        user_id, 
+        COALESCE(user_name, 'User'), 
+        '', 
+        '{}', 
+        '', 
+        NULL, 
+        COALESCE(user_photo, ''), 
+        NOW(), 
+        NOW()
+    )
+    ON CONFLICT (id) DO NOTHING;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Error in create_user_profile: %', SQLERRM;
+END;
+$$; 

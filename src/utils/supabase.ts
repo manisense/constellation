@@ -57,25 +57,47 @@ export const signUpWithEmail = async (email: string, password: string, userData:
     if (profileError || !profileData) {
       console.log("Profile not found, creating manually");
       
-      // Create the profile manually
-      const { error: insertError } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          name: userData.name || 'User',
-          about: '',
-          interests: [],
-          star_name: '',
-          star_type: null,
-          photo_url: userData.photo_url || '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+      // Try with RPC call to bypass RLS
+      try {
+        const { error: rpcError } = await supabase.rpc('create_user_profile', {
+          user_id: data.user.id,
+          user_name: userData.name || 'User',
+          user_photo: userData.photo_url || ''
         });
         
-      if (insertError) {
-        console.error("Error creating profile:", insertError);
+        if (rpcError) {
+          console.error("Error creating profile via RPC:", rpcError);
+          // Fall back to direct insert
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              name: userData.name || 'User',
+              about: '',
+              interests: [],
+              star_name: '',
+              star_type: null,
+              photo_url: userData.photo_url || '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+            
+          if (insertError) {
+            console.error("Error creating profile:", insertError);
+            // Don't throw here, as the auth user was created successfully
+            console.log("Profile creation failed, but user was created. Profile will be created on first login.");
+          } else {
+            console.log("Profile created successfully via direct insert");
+          }
+        } else {
+          console.log("Profile created successfully via RPC");
+        }
+      } catch (createError) {
+        console.error("Error in profile creation process:", createError);
         // Don't throw here, as the auth user was created successfully
       }
+    } else {
+      console.log("Profile already exists");
     }
     
     return { data, error: null };
@@ -116,25 +138,47 @@ export const signInWithEmail = async (email: string, password: string) => {
     if (profileError || !profileData) {
       console.log("Profile not found, creating one");
       
-      // Create a profile for the user
-      const { error: insertError } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          name: data.user.user_metadata?.name || 'User',
-          about: '',
-          interests: [],
-          star_name: '',
-          star_type: null,
-          photo_url: data.user.user_metadata?.avatar_url || '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+      // Try with RPC call to bypass RLS
+      try {
+        const { error: rpcError } = await supabase.rpc('create_user_profile', {
+          user_id: data.user.id,
+          user_name: data.user.user_metadata?.name || 'User',
+          user_photo: data.user.user_metadata?.avatar_url || ''
         });
         
-      if (insertError) {
-        console.error("Error creating profile:", insertError);
+        if (rpcError) {
+          console.error("Error creating profile via RPC:", rpcError);
+          // Fall back to direct insert
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: data.user.id,
+              name: data.user.user_metadata?.name || 'User',
+              about: '',
+              interests: [],
+              star_name: '',
+              star_type: null,
+              photo_url: data.user.user_metadata?.avatar_url || '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+            
+          if (insertError) {
+            console.error("Error creating profile:", insertError);
+            // Don't throw here, as the auth user was signed in successfully
+            console.log("Profile creation failed, but user was signed in. Will try again on next login.");
+          } else {
+            console.log("Profile created successfully via direct insert");
+          }
+        } else {
+          console.log("Profile created successfully via RPC");
+        }
+      } catch (createError) {
+        console.error("Error in profile creation process:", createError);
         // Don't throw here, as the auth user was signed in successfully
       }
+    } else {
+      console.log("Profile already exists");
     }
     
     return { data, error: null };

@@ -124,43 +124,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               setSession(newSession);
               setUser(newSession.user);
               
-              // Verify the user exists in the database
-              const { data: userData, error: userError } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('id', newSession.user.id)
-                .single();
-                
-              if (userError || !userData) {
-                console.log("User not found in profiles table after sign in, creating profile");
-                // Create a profile for the user
-                const { error: createError } = await supabase
-                  .from('profiles')
-                  .insert({
-                    id: newSession.user.id,
-                    name: newSession.user.user_metadata?.name || 'User',
-                    about: '',
-                    interests: [],
-                    star_name: '',
-                    star_type: null,
-                    photo_url: newSession.user.user_metadata?.avatar_url || '',
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                  });
-                  
-                if (createError) {
-                  console.error("Error creating user profile:", createError);
-                  await supabase.auth.signOut();
-                  setUser(null);
-                  setSession(null);
-                } else {
-                  console.log("User profile created, checking constellation status");
-                  await refreshUserStatus();
-                }
-              } else {
-                console.log("User verified in profiles table after sign in");
-                await refreshUserStatus();
-              }
+              // Check user status but don't create profile here
+              // This allows the user to proceed to create/join constellation
+              await refreshUserStatus();
             } else if (event === 'SIGNED_OUT') {
               console.log('User signed out');
               setUser(null);
