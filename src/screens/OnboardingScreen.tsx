@@ -1,158 +1,144 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
-  Animated,
-  useWindowDimensions,
+  TouchableOpacity,
   Image,
+  ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 import Screen from '../components/Screen';
 import Button from '../components/Button';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../provider/AuthProvider';
 
 type OnboardingScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 };
 
-// Onboarding data
-const slides = [
-  {
-    id: '1',
-    title: 'Discover Your Star Type',
-    description:
-      "Take our personality quiz to discover if you're a Luminary or Navigator star. Each type has unique strengths that complement each other.",
-    image: require('../assets/images/onboarding-1.png'),
-  },
-  {
-    id: '2',
-    title: 'Connect With Your Partner',
-    description:
-      "Create your constellation and invite your partner to join. Together, you'll form a unique celestial bond.",
-    image: require('../assets/images/onboarding-2.png'),
-  },
-  {
-    id: '3',
-    title: 'Grow Together',
-    description:
-      'Take synced quizzes, chat, and watch your constellation grow stronger as your relationship deepens.',
-    image: require('../assets/images/onboarding-3.png'),
-  },
-];
-
 const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
-  const { width } = useWindowDimensions();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const slidesRef = useRef<FlatList>(null);
+  const { user } = useAuth();
 
-  const viewableItemsChanged = useRef(({ viewableItems }: any) => {
-    setCurrentIndex(viewableItems[0].index);
-  }).current;
-
-  const viewConfig = useRef({ viewAreaCoveragePercentThreshold: 50 }).current;
-
-  const scrollTo = () => {
-    if (currentIndex < slides.length - 1) {
-      slidesRef.current?.scrollToIndex({ index: currentIndex + 1 });
+  // Check if user is authenticated
+  useEffect(() => {
+    if (!user) {
+      console.log("OnboardingScreen: No authenticated user, redirecting to Welcome");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
     } else {
-      navigation.navigate('CreateConstellation');
+      console.log("OnboardingScreen: User is authenticated");
     }
+  }, [user, navigation]);
+
+  const handleCreateConstellation = () => {
+    if (!user) {
+      console.log("Cannot create constellation: No authenticated user");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
+      return;
+    }
+    navigation.navigate('CreateConstellation');
   };
 
-  const Paginator = () => {
-    return (
-      <View style={styles.paginationContainer}>
-        {slides.map((_, index) => {
-          const inputRange = [
-            (index - 1) * width,
-            index * width,
-            (index + 1) * width,
-          ];
-
-          const dotWidth = scrollX.interpolate({
-            inputRange,
-            outputRange: [10, 20, 10],
-            extrapolate: 'clamp',
-          });
-
-          const opacity = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.3, 1, 0.3],
-            extrapolate: 'clamp',
-          });
-
-          return (
-            <Animated.View
-              style={[
-                styles.dot,
-                { width: dotWidth, opacity },
-                index === currentIndex && styles.activeDot,
-              ]}
-              key={index}
-            />
-          );
-        })}
-      </View>
-    );
-  };
-
-  const renderItem = ({ item }: { item: typeof slides[0] }) => {
-    return (
-      <View style={[styles.slide, { width }]}>
-        <Image
-          source={item.image}
-          style={styles.image}
-          resizeMode="contain"
-        />
-        <View style={styles.textContainer}>
-          <Text style={styles.title}>{item.title}</Text>
-          <Text style={styles.description}>{item.description}</Text>
-        </View>
-      </View>
-    );
+  const handleJoinConstellation = () => {
+    if (!user) {
+      console.log("Cannot join constellation: No authenticated user");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
+      return;
+    }
+    navigation.navigate('JoinConstellation');
   };
 
   return (
     <Screen>
-      <View style={styles.container}>
-        <FlatList
-          data={slides}
-          renderItem={renderItem}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          pagingEnabled
-          bounces={false}
-          keyExtractor={(item) => item.id}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-            { useNativeDriver: false }
-          )}
-          onViewableItemsChanged={viewableItemsChanged}
-          viewabilityConfig={viewConfig}
-          ref={slidesRef}
-        />
-
-        <Paginator />
-
-        <View style={styles.buttonContainer}>
-          <Button
-            title={currentIndex === slides.length - 1 ? "Let's Begin" : "Next"}
-            onPress={scrollTo}
-          />
-          {currentIndex < slides.length - 1 && (
-            <Button
-              title="Skip"
-              onPress={() => navigation.navigate('CreateConstellation')}
-              variant="outline"
-              style={styles.skipButton}
-            />
-          )}
+      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Welcome to Constellation</Text>
+          <Text style={styles.subtitle}>
+            Connect with your partner and discover your cosmic bond
+          </Text>
         </View>
-      </View>
+
+        <View style={styles.stepsContainer}>
+          <View style={styles.step}>
+            <View style={styles.stepIconContainer}>
+              <Ionicons name="star" size={24} color={COLORS.primary} />
+              <Text style={styles.stepNumber}>1</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Discover Your Star Type</Text>
+              <Text style={styles.stepDescription}>
+                Take a personality quiz to find out if you're a Luminary (bright, energetic) 
+                or Navigator (thoughtful, guiding).
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.step}>
+            <View style={styles.stepIconContainer}>
+              <Ionicons name="people" size={24} color={COLORS.primary} />
+              <Text style={styles.stepNumber}>2</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Form Your Constellation</Text>
+              <Text style={styles.stepDescription}>
+                Connect with your partner to create a unique constellation that 
+                represents your relationship.
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.step}>
+            <View style={styles.stepIconContainer}>
+              <Ionicons name="heart" size={24} color={COLORS.primary} />
+              <Text style={styles.stepNumber}>3</Text>
+            </View>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Strengthen Your Bond</Text>
+              <Text style={styles.stepDescription}>
+                Complete activities together, chat, and watch your constellation 
+                grow brighter as your connection deepens.
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.imageContainer}>
+          <Image
+            source={require('../assets/images/constellation-preview.png')}
+            style={styles.image}
+            resizeMode="contain"
+          />
+        </View>
+
+        <View style={styles.optionsContainer}>
+          <Text style={styles.optionsTitle}>Ready to Begin?</Text>
+          
+          <Button
+            title="Create a New Constellation"
+            onPress={handleCreateConstellation}
+            style={styles.createButton}
+          />
+          
+          <Text style={styles.orText}>OR</Text>
+          
+          <Button
+            title="Join with Invite Code"
+            onPress={handleJoinConstellation}
+            style={styles.joinButton}
+          />
+        </View>
+      </ScrollView>
     </Screen>
   );
 };
@@ -160,60 +146,103 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  slide: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  contentContainer: {
     padding: SPACING.l,
+    paddingBottom: SPACING.xxl,
   },
-  image: {
-    width: '80%',
-    height: '50%',
-    marginBottom: SPACING.l,
-  },
-  textContainer: {
+  header: {
     alignItems: 'center',
+    marginTop: SPACING.xl,
+    marginBottom: SPACING.xl,
   },
   title: {
-    fontSize: FONTS.h2,
+    fontSize: FONTS.h1,
     fontWeight: 'bold',
     color: COLORS.white,
+    marginBottom: SPACING.s,
     textAlign: 'center',
-    marginBottom: SPACING.m,
   },
-  description: {
+  subtitle: {
     fontSize: FONTS.body1,
     color: COLORS.gray300,
     textAlign: 'center',
-    paddingHorizontal: SPACING.m,
-    lineHeight: 24,
   },
-  paginationContainer: {
-    flexDirection: 'row',
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  dot: {
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.primary,
-    marginHorizontal: 8,
-  },
-  activeDot: {
-    backgroundColor: COLORS.accent,
-  },
-  buttonContainer: {
-    width: '100%',
-    paddingHorizontal: SPACING.l,
+  stepsContainer: {
     marginBottom: SPACING.xl,
   },
-  skipButton: {
-    marginTop: SPACING.m,
+  step: {
+    flexDirection: 'row',
+    marginBottom: SPACING.l,
+  },
+  stepIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.gray800,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.m,
+  },
+  stepNumber: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: COLORS.accent,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    textAlign: 'center',
+    fontSize: FONTS.caption,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    lineHeight: 20,
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepTitle: {
+    fontSize: FONTS.h4,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    marginBottom: SPACING.xs,
+  },
+  stepDescription: {
+    fontSize: FONTS.body2,
+    color: COLORS.gray300,
+    lineHeight: 20,
+  },
+  imageContainer: {
+    alignItems: 'center',
+    marginBottom: SPACING.xl,
+  },
+  image: {
+    width: '100%',
+    height: 200,
+  },
+  optionsContainer: {
+    alignItems: 'center',
+  },
+  optionsTitle: {
+    fontSize: FONTS.h3,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    marginBottom: SPACING.l,
+    textAlign: 'center',
+  },
+  createButton: {
+    marginBottom: SPACING.m,
+    width: '100%',
+  },
+  orText: {
+    fontSize: FONTS.body2,
+    color: COLORS.gray300,
+    marginVertical: SPACING.s,
+  },
+  joinButton: {
+    marginTop: SPACING.s,
+    width: '100%',
+    backgroundColor: COLORS.secondary,
   },
 });
 

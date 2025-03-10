@@ -4,179 +4,153 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  TextInput,
   Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Image
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
+import { joinConstellationWithCode } from '../utils/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
-import Button from '../components/Button';
-import Input from '../components/Input';
-import Card from '../components/Card';
-import { db, auth, onAuthStateChanged } from '../services/firebase';
-import { 
-  doc, 
-  collection, 
-  query, 
-  where, 
-  getDocs,
-  updateDoc,
-} from 'firebase/firestore';
+import { useAuth } from '../provider/AuthProvider';
 
 type JoinConstellationScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'JoinConstellation'>;
 };
 
-const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({
-  navigation,
-}) => {
+const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({ navigation }) => {
+  const { user, refreshUserStatus } = useAuth();
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const [inviteCodeError, setInviteCodeError] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // Check if user is authenticated
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setIsAuthenticated(!!user);
-      
-      // If not authenticated, redirect to login
-      if (!user) {
-        Alert.alert(
-          'Authentication Required',
-          'Please sign in or create an account to join a constellation.',
-          [
-            {
-              text: 'Sign In',
-              onPress: () => navigation.navigate('Login'),
-            },
-            {
-              text: 'Create Account',
-              onPress: () => navigation.navigate('Register'),
-            },
-          ]
-        );
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const validateInviteCode = () => {
-    if (!inviteCode) {
-      setInviteCodeError('Invite code is required');
-      return false;
+    if (!user) {
+      console.log("No authenticated user, redirecting to Welcome");
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
     }
-    setInviteCodeError('');
-    return true;
-  };
+  }, [user, navigation]);
 
   const handleJoinConstellation = async () => {
-    if (!validateInviteCode()) {
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to join a constellation');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
       return;
     }
 
-    if (!isAuthenticated) {
-      Alert.alert(
-        'Authentication Required',
-        'Please sign in or create an account to join a constellation.',
-        [
-          {
-            text: 'Sign In',
-            onPress: () => navigation.navigate('Login'),
-          },
-          {
-            text: 'Create Account',
-            onPress: () => navigation.navigate('Register'),
-          },
-        ]
-      );
+    if (!inviteCode.trim()) {
+      Alert.alert('Error', 'Please enter an invite code');
       return;
     }
 
     setLoading(true);
     try {
-      // Check if invite code exists
-      const constellationsRef = collection(db, 'constellations');
-      const q = query(constellationsRef, where('inviteCode', '==', inviteCode));
-      const querySnapshot = await getDocs(q);
+      console.log("Joining constellation with invite code:", inviteCode.toUpperCase());
+      console.log("User ID:", user.id);
       
-      if (querySnapshot.empty) {
-        setInviteCodeError('Invalid invite code. Please check and try again.');
-        setLoading(false);
-        return;
+      // Join constellation using the RPC function
+      const { data, error } = await joinConstellationWithCode(inviteCode.toUpperCase());
+      
+      if (error) {
+        console.error("Error details:", error);
+        throw error;
       }
       
-      // Get the constellation ID
-      const constellationId = querySnapshot.docs[0].id;
-      const constellationData = querySnapshot.docs[0].data();
-      
-      // Update user's constellation ID
-      const user = auth.currentUser;
-      if (user) {
-        await updateDoc(doc(db, 'users', user.uid), {
-          constellationId: constellationId
-        });
+      if (data && data.success) {
+        console.log('Successfully joined constellation:', data.constellation_id);
         
-        // Update constellation's partner IDs
-        const partnerIds = constellationData.partnerIds || [];
-        if (!partnerIds.includes(user.uid)) {
-          partnerIds.push(user.uid);
-          await updateDoc(doc(db, 'constellations', constellationId), {
-            partnerIds: partnerIds
-          });
-        }
-        
-        // Navigate to profile setup
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Profile' }],
-        });
+        // Refresh user status to trigger navigation to the appropriate screen
+        await refreshUserStatus();
+      } else {
+        console.error("Unsuccessful response:", data);
+        throw new Error(data?.message || 'Failed to join constellation');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      console.error('Error joining constellation:', error);
+      Alert.alert('Error', error.message || 'Failed to join constellation. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Screen scrollable keyboardAvoiding>
-      <View style={styles.container}>
-        <Text style={styles.title}>Join a Constellation</Text>
-        <Text style={styles.subtitle}>
-          Enter your partner's invite code to connect
-        </Text>
-
-        <Card variant="outlined" style={styles.inviteCard}>
-          <Input
-            label="Invite Code"
-            placeholder="Enter invite code"
-            autoCapitalize="characters"
-            value={inviteCode}
-            onChangeText={setInviteCode}
-            onBlur={validateInviteCode}
-            error={inviteCodeError}
-          />
-        </Card>
-
-        <View style={styles.buttonContainer}>
-          <Button
-            title="Join Constellation"
-            onPress={handleJoinConstellation}
-            loading={loading}
-            style={styles.button}
-          />
-        </View>
-
-        <TouchableOpacity
-          onPress={() => navigation.navigate('CreateConstellation')}
-          style={styles.linkContainer}
+    <Screen>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.linkText}>
-            Don't have an invite code? Create a constellation
-          </Text>
-        </TouchableOpacity>
-      </View>
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+            </View>
+          )}
+          
+          <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+            >
+              <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.content}>
+            <Image 
+              source={require('../assets/images/constellation.png')} 
+              style={styles.image}
+              resizeMode="contain"
+            />
+            
+            <Text style={styles.title}>Join a Constellation</Text>
+            <Text style={styles.subtitle}>
+              Enter the invite code shared by your partner to join their constellation.
+            </Text>
+            
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter Invite Code"
+                placeholderTextColor={COLORS.gray500}
+                value={inviteCode}
+                onChangeText={setInviteCode}
+                autoCapitalize="characters"
+                maxLength={6}
+              />
+            </View>
+            
+            <TouchableOpacity
+              style={styles.joinButton}
+              onPress={handleJoinConstellation}
+              disabled={loading || !inviteCode.trim()}
+            >
+              <Text style={styles.joinButtonText}>Join Constellation</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={styles.createButton}
+              onPress={() => navigation.navigate('CreateConstellation')}
+            >
+              <Text style={styles.createButtonText}>Create My Own Constellation</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 };
@@ -184,40 +158,92 @@ const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     padding: SPACING.l,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1000,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.l,
+  },
+  backButton: {
+    padding: SPACING.s,
+  },
+  content: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  image: {
+    width: 200,
+    height: 200,
+    marginBottom: SPACING.l,
   },
   title: {
-    fontSize: FONTS.h2,
+    fontSize: FONTS.h1,
     fontWeight: 'bold',
-    color: COLORS.white,
-    marginBottom: SPACING.xs,
+    color: COLORS.primary,
+    marginBottom: SPACING.s,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: FONTS.body1,
-    color: COLORS.gray300,
+    color: COLORS.gray700,
     marginBottom: SPACING.l,
     textAlign: 'center',
   },
-  inviteCard: {
+  inputContainer: {
     width: '100%',
+    borderWidth: 1,
+    borderColor: COLORS.gray300,
+    borderRadius: 8,
     marginBottom: SPACING.l,
+    paddingHorizontal: SPACING.m,
+    backgroundColor: COLORS.white,
   },
-  buttonContainer: {
-    width: '100%',
-    marginBottom: SPACING.l,
-  },
-  button: {
-    marginTop: SPACING.m,
-  },
-  linkContainer: {
-    marginTop: SPACING.l,
-  },
-  linkText: {
-    color: COLORS.accent,
-    fontSize: FONTS.body2,
+  input: {
+    height: 50,
+    color: COLORS.gray900,
+    fontSize: FONTS.body1,
     textAlign: 'center',
+    letterSpacing: 2,
+  },
+  joinButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: SPACING.m,
+  },
+  joinButtonText: {
+    color: COLORS.white,
+    fontSize: FONTS.body1,
+    fontWeight: 'bold',
+  },
+  createButton: {
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 8,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+  },
+  createButtonText: {
+    color: COLORS.primary,
+    fontSize: FONTS.body1,
+    fontWeight: 'bold',
   },
 });
 

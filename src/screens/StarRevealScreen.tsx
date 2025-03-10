@@ -14,15 +14,16 @@ import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
 import Button from '../components/Button';
 import Card from '../components/Card';
-import { db } from '../services/firebase';
-import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { supabase } from '../utils/supabase';
 import { StarType } from '../types';
+import { useAuth } from '../hooks/useAuth';
 
 type StarRevealScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'StarReveal'>;
 };
 
 const StarRevealScreen: React.FC<StarRevealScreenProps> = ({ navigation }) => {
+  const { user } = useAuth();
   const [starType, setStarType] = useState<StarType | null>(null);
   const [starName, setStarName] = useState('');
   const [partnerStarType, setPartnerStarType] = useState<StarType | null>(null);
@@ -42,8 +43,10 @@ const StarRevealScreen: React.FC<StarRevealScreenProps> = ({ navigation }) => {
   const constellationOpacity = new Animated.Value(0);
 
   useEffect(() => {
-    loadUserData();
-  }, []);
+    if (user) {
+      loadUserData();
+    }
+  }, [user]);
 
   useEffect(() => {
     if (starType) {
@@ -98,60 +101,89 @@ const StarRevealScreen: React.FC<StarRevealScreenProps> = ({ navigation }) => {
   }, [starType, partnerStarType]);
 
   const loadUserData = async () => {
+    if (!user) return;
+    
     try {
-      // Get the current user ID from local storage
-      // In a real app, we would use auth.currentUser.uid
-      // For our demo, we'll use the latest user created
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'), limit(1));
-      const querySnapshot = await getDocs(q);
+      // Get user profile data
+      const { data: userData, error: userError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
       
-      if (!querySnapshot.empty) {
-        const userData = querySnapshot.docs[0].data();
-        const userId = querySnapshot.docs[0].id;
+      if (userError) throw userError;
+      
+      setStarType(userData.starType);
+      setStarName(userData.starName || '');
+      
+      // Get user's constellation membership
+      const { data: memberData, error: memberError } = await supabase
+        .from('constellation_members')
+        .select('constellation_id')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (memberError) {
+        // User doesn't have a constellation yet
+        setLoading(false);
+        return;
+      }
+      
+      if (memberData && memberData.constellation_id) {
+        setConstellationId(memberData.constellation_id);
         
-        setStarType(userData.starType);
-        setStarName(userData.starName || '');
-        setConstellationId(userData.constellationId);
-
-        if (userData.constellationId) {
-          // Get constellation data
-          const constellationDoc = await getDoc(doc(db, 'constellations', userData.constellationId));
-          if (constellationDoc.exists()) {
-            const constellationData = constellationDoc.data();
-            setConstellationName(constellationData.name || 'Your Constellation');
+        // Get constellation data
+        const { data: constellationData, error: constellationError } = await supabase
+          .from('constellations')
+          .select('*')
+          .eq('id', memberData.constellation_id)
+          .single();
+        
+        if (constellationError) throw constellationError;
+        
+        setConstellationName(constellationData.name || 'Your Constellation');
+        
+        // Get partner data
+        const { data: partners, error: partnersError } = await supabase
+          .from('constellation_members')
+          .select('user_id')
+          .eq('constellation_id', memberData.constellation_id)
+          .neq('user_id', user.id);
+        
+        if (partnersError) throw partnersError;
+        
+        if (partners && partners.length > 0) {
+          const partnerId = partners[0].user_id;
+          
+          // Get partner profile
+          const { data: partnerData, error: partnerError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', partnerId)
+            .single();
             
-            // Find partner
-            const partnerIds = constellationData.partnerIds || [];
-            const partnerId = partnerIds.find((id: string) => id !== userId);
+          if (!partnerError && partnerData) {
+            setPartnerStarType(partnerData.starType);
+            setPartnerName(partnerData.name || 'Your Partner');
             
-            if (partnerId) {
-              // Get partner data
-              const partnerDoc = await getDoc(doc(db, 'users', partnerId));
-              if (partnerDoc.exists()) {
-                const partnerData = partnerDoc.data();
-                setPartnerStarType(partnerData.starType);
-                setPartnerName(partnerData.name || 'Your Partner');
+            // Check if both have completed the quiz
+            if (userData.starType && partnerData.starType) {
+              setBothCompleted(true);
+              
+              // Generate constellation name
+              if (userData.starType && partnerData.starType) {
+                const name = generateConstellationName(userData.starType, partnerData.starType);
+                setConstellationName(name);
                 
-                // Check if both have completed the quiz
-                if (userData.starType && partnerData.starType) {
-                  setBothCompleted(true);
-                  
-                  // Generate constellation name
-                  if (userData.starType && partnerData.starType) {
-                    const name = generateConstellationName(userData.starType, partnerData.starType);
-                    setConstellationName(name);
-                    
-                    // Update constellation name in Firestore
-                    await updateDoc(doc(db, 'constellations', userData.constellationId), {
-                      name,
-                    });
-                  }
-                  
-                  // Start animations
-                  startAnimations();
-                }
+                // Update constellation name in Supabase
+                await supabase
+                  .from('constellations')
+                  .update({ name })
+                  .eq('id', memberData.constellation_id);
               }
+              
+              // Start animations
+              startAnimations();
             }
           }
         }

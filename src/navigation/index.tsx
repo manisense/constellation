@@ -1,15 +1,18 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { RootStackParamList } from '../types';
+import { RootStackParamList } from '../types/index';
+import { Ionicons } from '@expo/vector-icons';
+import { COLORS } from '../constants/theme';
+import { useAuth } from '../hooks/useAuth';
 
-// Import screens (we'll create these next)
+// Import screens
 // Auth and Onboarding Screens
 import WelcomeScreen from '../screens/WelcomeScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import CreateConstellationScreen from '../screens/CreateConstellationScreen';
 import JoinConstellationScreen from '../screens/JoinConstellationScreen';
+import WaitingForPartnerScreen from '../screens/WaitingForPartner';
 import ProfileScreen from '../screens/ProfileScreen';
 import QuizScreen from '../screens/QuizScreen';
 import StarRevealScreen from '../screens/StarRevealScreen';
@@ -28,7 +31,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator();
 
 // Bottom Tab Navigator
-const BottomTabNavigator = () => {
+const MainTabNavigator = () => {
   return (
     <Tab.Navigator
       screenOptions={{
@@ -37,73 +40,167 @@ const BottomTabNavigator = () => {
           backgroundColor: '#121212',
           borderTopColor: '#2C2C2C',
         },
-        tabBarActiveTintColor: '#3E54AC',
-        tabBarInactiveTintColor: '#9E9E9E',
+        tabBarActiveTintColor: COLORS.primary,
+        tabBarInactiveTintColor: COLORS.gray500,
       }}
     >
       <Tab.Screen 
-        name="Home" 
+        name="HomeTab" 
         component={HomeScreen} 
         options={{
           tabBarLabel: 'Home',
-          // We'll add icons later
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tab.Screen 
-        name="Chat" 
+        name="ChatTab" 
         component={ChatScreen} 
         options={{
           tabBarLabel: 'Chat',
-          // We'll add icons later
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="chatbubble-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tab.Screen 
-        name="ConstellationView" 
+        name="ConstellationTab" 
         component={ConstellationViewScreen} 
         options={{
           tabBarLabel: 'Constellation',
-          // We'll add icons later
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="star-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tab.Screen 
-        name="Settings" 
+        name="SettingsTab" 
         component={SettingsScreen} 
         options={{
           tabBarLabel: 'Settings',
-          // We'll add icons later
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="settings-outline" size={size} color={color} />
+          ),
         }}
       />
     </Tab.Navigator>
   );
 };
 
-// Main Navigation Container
-const AppNavigator = () => {
+// Auth Stack - This is shown first when no user is authenticated
+const AuthStack = () => {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Welcome"
-        screenOptions={{
-          headerShown: false,
-        }}
-      >
-        {/* Auth and Onboarding Screens */}
-        <Stack.Screen name="Welcome" component={WelcomeScreen} />
-        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
-        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-        <Stack.Screen name="CreateConstellation" component={CreateConstellationScreen} />
-        <Stack.Screen name="JoinConstellation" component={JoinConstellationScreen} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="Quiz" component={QuizScreen} />
-        <Stack.Screen name="StarReveal" component={StarRevealScreen} />
-        
-        {/* Main App Screens */}
-        <Stack.Screen name="Home" component={BottomTabNavigator} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+      initialRouteName="Welcome"
+    >
+      <Stack.Screen name="Welcome" component={WelcomeScreen} />
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+    </Stack.Navigator>
   );
+};
+
+// Onboarding Stack (only shown after authentication)
+const OnboardingStack = () => {
+  const { userStatus } = useAuth();
+  
+  // Determine initial route based on user status
+  const initialRoute = userStatus === 'waiting_for_partner' ? 'WaitingForPartner' : 'Onboarding';
+  
+  console.log("OnboardingStack initialRoute:", initialRoute);
+  
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+      initialRouteName={initialRoute}
+    >
+      <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+      <Stack.Screen name="CreateConstellation" component={CreateConstellationScreen} />
+      <Stack.Screen name="JoinConstellation" component={JoinConstellationScreen} />
+      <Stack.Screen name="WaitingForPartner" component={WaitingForPartnerScreen} />
+      <Stack.Screen name="Profile" component={ProfileScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Quiz Stack (constellation formed but quiz not completed)
+const QuizStack = () => {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="Quiz" component={QuizScreen} />
+      <Stack.Screen name="StarReveal" component={StarRevealScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// App Stack (fully authenticated with constellation and quiz completed)
+const AppStack = () => {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="Home" component={MainTabNavigator} />
+      <Stack.Screen name="Chat" component={ChatScreen} />
+      <Stack.Screen name="ConstellationView" component={ConstellationViewScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
+    </Stack.Navigator>
+  );
+};
+
+// Main Navigation Stack
+const AppNavigator = () => {
+  const { user, userStatus, loading } = useAuth();
+  
+  // If still loading, show nothing yet
+  if (loading) {
+    return null;
+  }
+  
+  // First check if user is authenticated - this ensures auth screens come first
+  if (!user) {
+    console.log("No authenticated user, showing AuthStack");
+    // If no user is logged in, show the auth stack (Welcome, Login, Register)
+    return <AuthStack />;
+  }
+  
+  console.log("User authenticated, status:", userStatus);
+  
+  // User is authenticated, now determine which screen to show next
+  switch (userStatus) {
+    case 'no_constellation':
+      // User is authenticated but has no constellation yet
+      console.log("User has no constellation, showing OnboardingStack");
+      return <OnboardingStack />;
+    case 'waiting_for_partner':
+      // User created a constellation and is waiting for partner
+      console.log("User waiting for partner, showing OnboardingStack");
+      return <OnboardingStack />;
+    case 'quiz_needed':
+      // Both users joined but quiz not completed
+      console.log("Quiz needed, showing QuizStack");
+      return <QuizStack />;
+    case 'complete':
+      // Constellation is complete, show main app
+      console.log("Constellation complete, showing AppStack");
+      return <AppStack />;
+    default:
+      // Default to onboarding if status is not yet determined
+      console.log("Default case, showing OnboardingStack");
+      return <OnboardingStack />;
+  }
 };
 
 export default AppNavigator; 

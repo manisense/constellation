@@ -4,7 +4,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  TextInput,
   Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,33 +14,27 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
+import { signUpWithEmail } from '../utils/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
-import Input from '../components/Input';
-import Button from '../components/Button';
-import { 
-  auth, 
-  createUserWithEmailAndPassword, 
-  googleProvider, 
-  signInWithPopup,
-  signInWithCredential,
-  db
-} from '../services/firebase';
-import { GoogleAuthProvider } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { AntDesign } from '@expo/vector-icons';
+import { useAuth } from '../provider/AuthProvider';
 
 type RegisterScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Register'>;
 };
 
 const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
+  const { refreshUserStatus } = useAuth();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const validateForm = () => {
-    if (!email || !password || !confirmPassword) {
+    if (!name || !email || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return false;
     }
@@ -56,87 +52,85 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
     return true;
   };
 
-  const createUserDocument = async (userId: string, email: string, displayName?: string, photoURL?: string) => {
-    try {
-      await setDoc(doc(db, 'users', userId), {
-        id: userId,
-        email: email,
-        name: displayName || '',
-        photoURL: photoURL || '',
-        createdAt: serverTimestamp(),
-        constellationId: null,
-        about: '',
-        interests: [],
-        starName: '',
-        starType: null,
-      });
-    } catch (error) {
-      console.error('Error creating user document:', error);
-      throw error;
-    }
-  };
-
   const handleEmailRegister = async () => {
     if (!validateForm()) return;
 
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      console.log("Starting registration process for:", email);
       
-      // Create user document in Firestore
-      await createUserDocument(user.uid, email);
+      // Register with email and password
+      const userData = {
+        name,
+        email,
+      };
       
-      // Navigate to create constellation screen
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'CreateConstellation' }],
-      });
-    } catch (error: any) {
-      console.error('Registration error:', error);
-      Alert.alert('Registration Failed', error.message || 'Failed to create account');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleRegister = async () => {
-    setLoading(true);
-    try {
-      if (Platform.OS === 'web') {
-        // Web implementation
-        const result = await signInWithPopup(auth, googleProvider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const user = result.user;
+      const { data, error } = await signUpWithEmail(email, password, userData);
+      
+      if (error) {
+        console.error("Registration error details:", error);
         
-        if (credential && user) {
-          // Create user document in Firestore
-          await createUserDocument(user.uid, user.email || '', user.displayName || undefined, user.photoURL || undefined);
-          
-          // Navigate to create constellation screen
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'CreateConstellation' }],
-          });
+        // Handle specific error messages
+        let errorMessage = "Failed to register";
+        
+        // Try to extract the error message
+        if (typeof error === 'object') {
+          if ('message' in error) {
+            errorMessage = (error as { message: string }).message;
+          } else if ('error_description' in error) {
+            errorMessage = (error as { error_description: string }).error_description;
+          }
+        } else if (typeof error === 'string') {
+          errorMessage = error;
         }
-      } else {
-        // For Expo Go, we can't use native Google Sign-In
-        // Show a message to the user
+        
+        if (errorMessage.includes("Database error saving new user")) {
+          throw new Error("Registration failed. This email may already be in use.");
+        }
+        
+        throw new Error(errorMessage);
+      }
+      
+      if (data && data.user) {
+        console.log('User registered successfully:', data.user.id);
+        
+        // Show success message
         Alert.alert(
-          'Google Sign-In Unavailable',
-          'Google Sign-In requires a development build or production build. Please use email/password authentication in Expo Go.',
+          'Registration Successful',
+          'Your account has been created. You can now create or join a constellation.',
           [
             {
               text: 'OK',
-              onPress: () => setLoading(false)
-            }
+              onPress: async () => {
+                try {
+                  // Refresh user status to determine next screen
+                  await refreshUserStatus();
+                  // Navigation will be handled by the AppNavigator based on user status
+                } catch (refreshError) {
+                  console.error("Error refreshing user status:", refreshError);
+                  // Navigate to login as fallback
+                  navigation.navigate('Login');
+                }
+              },
+            },
           ]
         );
-        return;
+      } else {
+        console.error("Registration succeeded but no user data returned");
+        Alert.alert(
+          'Registration Status',
+          'Your account may have been created. Please check your email for confirmation and try logging in.',
+          [
+            {
+              text: 'OK',
+              onPress: () => navigation.navigate('Login'),
+            },
+          ]
+        );
       }
     } catch (error: any) {
-      console.error('Google registration error:', error);
-      Alert.alert('Registration Failed', error.message || 'Failed to sign up with Google');
+      console.error('Registration error:', error);
+      Alert.alert('Registration Error', error.message || 'Failed to register. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -148,70 +142,109 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.headerContainer}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Sign up to start your journey</Text>
-          </View>
-
-          <View style={styles.formContainer}>
-            <Input
-              label="Email"
-              placeholder="Enter your email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <Input
-              label="Password"
-              placeholder="Create a password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
-            <Input
-              label="Confirm Password"
-              placeholder="Confirm your password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-            />
-
-            <Button
-              title="Create Account"
-              onPress={handleEmailRegister}
-              loading={loading}
-              style={styles.button}
-            />
-
-            <View style={styles.orContainer}>
-              <View style={styles.divider} />
-              <Text style={styles.orText}>OR</Text>
-              <View style={styles.divider} />
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
             </View>
-
+          )}
+          
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Sign up to get started</Text>
+          
+          <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <Ionicons name="person-outline" size={20} color={COLORS.gray500} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Full Name"
+                placeholderTextColor={COLORS.gray500}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+              />
+            </View>
+            
+            <View style={styles.inputContainer}>
+              <Ionicons name="mail-outline" size={20} color={COLORS.gray500} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor={COLORS.gray500}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+            </View>
+            
+            <View style={styles.inputContainer}>
+              <Ionicons name="lock-closed-outline" size={20} color={COLORS.gray500} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor={COLORS.gray500}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity 
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.passwordToggle}
+              >
+                <Ionicons 
+                  name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                  size={20} 
+                  color={COLORS.gray500} 
+                />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.inputContainer}>
+              <Ionicons name="lock-closed-outline" size={20} color={COLORS.gray500} style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Confirm Password"
+                placeholderTextColor={COLORS.gray500}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+              />
+              <TouchableOpacity 
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.passwordToggle}
+              >
+                <Ionicons 
+                  name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
+                  size={20} 
+                  color={COLORS.gray500} 
+                />
+              </TouchableOpacity>
+            </View>
+            
             <TouchableOpacity
-              style={styles.googleButton}
-              onPress={handleGoogleRegister}
+              style={styles.registerButton}
+              onPress={handleEmailRegister}
               disabled={loading}
             >
-              <AntDesign name="google" size={24} color="#DB4437" style={styles.googleIcon} />
-              <Text style={styles.googleButtonText}>Sign up with Google</Text>
+              <Text style={styles.registerButtonText}>Sign Up</Text>
             </TouchableOpacity>
             
-            {Platform.OS !== 'web' && (
-              <Text style={styles.noteText}>
-                Note: Google Sign-In requires a development build. In Expo Go, please use email/password.
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.footerContainer}>
-            <Text style={styles.footerText}>Already have an account?</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-              <Text style={styles.signInText}>Sign In</Text>
-            </TouchableOpacity>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+            
+            <View style={styles.loginContainer}>
+              <Text style={styles.loginText}>Already have an account? </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <Text style={styles.loginLink}>Sign In</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -226,83 +259,90 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     padding: SPACING.l,
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
-  headerContainer: {
-    marginTop: SPACING.xl,
-    marginBottom: SPACING.xl,
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
   title: {
-    fontSize: FONTS.h1,
+    fontSize: 28,
     fontWeight: 'bold',
     color: COLORS.white,
-    marginBottom: SPACING.xs,
+    marginBottom: SPACING.s,
   },
   subtitle: {
-    fontSize: FONTS.body1,
-    color: COLORS.gray300,
+    fontSize: 16,
+    color: COLORS.gray400,
+    marginBottom: SPACING.xxl,
   },
-  formContainer: {
-    marginBottom: SPACING.xl,
+  form: {
+    width: '100%',
   },
-  button: {
-    marginTop: SPACING.m,
-    marginBottom: SPACING.l,
-  },
-  orContainer: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: SPACING.m,
+    backgroundColor: COLORS.gray800,
+    borderRadius: 8,
+    marginBottom: SPACING.m,
+    paddingHorizontal: SPACING.m,
+    height: 56,
+  },
+  inputIcon: {
+    marginRight: SPACING.s,
+  },
+  input: {
+    flex: 1,
+    color: COLORS.white,
+    fontSize: 16,
+    height: '100%',
+  },
+  passwordToggle: {
+    padding: SPACING.s,
+  },
+  registerButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.l,
+  },
+  registerButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.l,
+  },
+  dividerLine: {
     flex: 1,
     height: 1,
     backgroundColor: COLORS.gray700,
   },
-  orText: {
-    color: COLORS.gray300,
-    marginHorizontal: SPACING.m,
-    fontSize: FONTS.body2,
+  dividerText: {
+    color: COLORS.gray500,
+    paddingHorizontal: SPACING.m,
+    fontSize: 14,
   },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.gray800,
-    borderRadius: 8,
-    padding: SPACING.m,
-    borderWidth: 1,
-    borderColor: COLORS.gray700,
-  },
-  googleIcon: {
-    marginRight: SPACING.s,
-  },
-  googleButtonText: {
-    color: COLORS.white,
-    fontSize: FONTS.body1,
-    fontWeight: '500',
-  },
-  noteText: {
-    color: COLORS.gray300,
-    fontSize: FONTS.body2,
-    textAlign: 'center',
-    marginTop: SPACING.m,
-    fontStyle: 'italic',
-  },
-  footerContainer: {
+  loginContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: SPACING.l,
+    marginTop: SPACING.l,
   },
-  footerText: {
-    color: COLORS.gray300,
-    fontSize: FONTS.body2,
-    marginRight: SPACING.xs,
+  loginText: {
+    color: COLORS.gray400,
+    fontSize: 14,
   },
-  signInText: {
+  loginLink: {
     color: COLORS.primary,
-    fontSize: FONTS.body2,
+    fontSize: 14,
     fontWeight: 'bold',
   },
 });

@@ -13,19 +13,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 import Screen from '../components/Screen';
-import { db } from '../services/firebase';
-import {
-  collection,
-  query,
-  orderBy,
-  limit,
-  getDocs,
-  addDoc,
-  serverTimestamp,
-  onSnapshot,
-  getDoc,
-  doc,
-} from 'firebase/firestore';
+import { supabase } from '../utils/supabase';
+import { useAuth } from '../hooks/useAuth';
 
 type ChatScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
@@ -33,78 +22,109 @@ type ChatScreenProps = {
 
 interface Message {
   id: string;
-  text: string;
-  senderId: string;
-  createdAt: Date;
+  content: string;
+  user_id: string;
+  created_at: string;
 }
 
 const ChatScreen: React.FC<ChatScreenProps> = () => {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [constellationId, setConstellationId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
   const [partnerName, setPartnerName] = useState('Partner');
+  const [subscription, setSubscription] = useState<any>(null);
 
   useEffect(() => {
-    loadUserData();
-  }, []);
+    if (user) {
+      loadUserData();
+    }
+    
+    return () => {
+      // Clean up subscription
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, [user]);
 
   const loadUserData = async () => {
+    if (!user) return;
+    
     try {
-      // Get the current user ID from local storage
-      // In a real app, we would use auth.currentUser.uid
-      // For our demo, we'll use the latest user created
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'), limit(1));
-      const querySnapshot = await getDocs(q);
+      // Get user's constellation membership
+      const { data: memberData, error: memberError } = await supabase
+        .from('constellation_members')
+        .select('constellation_id')
+        .eq('user_id', user.id)
+        .single();
       
-      if (!querySnapshot.empty) {
-        const userData = querySnapshot.docs[0].data();
-        const userId = querySnapshot.docs[0].id;
+      if (memberError) {
+        console.error('Error getting constellation membership:', memberError);
+        setLoading(false);
+        return;
+      }
+      
+      if (memberData && memberData.constellation_id) {
+        setConstellationId(memberData.constellation_id);
         
-        setUserId(userId);
-
-        if (userData.constellationId) {
-          setConstellationId(userData.constellationId);
+        // Get initial messages
+        const { data: messageData, error: messageError } = await supabase
+          .from('messages')
+          .select(`
+            id,
+            content,
+            user_id,
+            created_at
+          `)
+          .eq('constellation_id', memberData.constellation_id)
+          .order('created_at', { ascending: false });
+        
+        if (messageError) throw messageError;
+        
+        if (messageData) {
+          setMessages(messageData.reverse());
+        }
+        
+        // Subscribe to new messages
+        const newSubscription = supabase
+          .channel(`messages:constellation_id=eq.${memberData.constellation_id}`)
+          .on('postgres_changes', { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'messages',
+            filter: `constellation_id=eq.${memberData.constellation_id}`
+          }, (payload) => {
+            // Add new message to the list
+            setMessages(prevMessages => [...prevMessages, payload.new as Message]);
+          })
+          .subscribe();
+        
+        setSubscription(newSubscription);
+        
+        // Get partner info using a separate query
+        const { data: partners, error: partnersError } = await supabase
+          .from('constellation_members')
+          .select('user_id')
+          .eq('constellation_id', memberData.constellation_id)
+          .neq('user_id', user.id);
+        
+        if (partnersError) throw partnersError;
+        
+        if (partners && partners.length > 0) {
+          const partnerId = partners[0].user_id;
           
-          // Get constellation data
-          const constellationRef = collection(db, 'constellations', userData.constellationId, 'messages');
-          const messagesQuery = query(constellationRef, orderBy('createdAt', 'desc'));
-          
-          // Listen for messages
-          const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
-            const messageList: Message[] = [];
-            snapshot.forEach((doc) => {
-              const data = doc.data();
-              messageList.push({
-                id: doc.id,
-                text: data.text,
-                senderId: data.senderId,
-                createdAt: data.createdAt?.toDate() || new Date(),
-              });
-            });
-            setMessages(messageList.reverse());
-            setLoading(false);
-          });
-          
-          // Get partner name
-          const constellationDoc = await getDoc(doc(db, 'constellations', userData.constellationId));
-          if (constellationDoc.exists()) {
-            const constellationData = constellationDoc.data();
-            const partnerIds = constellationData.partnerIds || [];
-            const partnerId = partnerIds.find((id: string) => id !== userId);
+          // Get partner profile
+          const { data: partnerProfile, error: profileError } = await supabase
+            .from('profiles')
+            .select('name')
+            .eq('id', partnerId)
+            .single();
             
-            if (partnerId) {
-              const partnerDoc = await getDoc(doc(db, 'users', partnerId));
-              if (partnerDoc.exists()) {
-                const partnerData = partnerDoc.data();
-                setPartnerName(partnerData.name || 'Partner');
-              }
-            }
+          if (!profileError && partnerProfile) {
+            setPartnerName(partnerProfile.name || 'Partner');
           }
-          
-          return unsubscribe;
         }
       }
     } catch (error) {
@@ -115,15 +135,19 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim() || !constellationId || !userId) return;
+    if (!newMessage.trim() || !constellationId || !user) return;
 
     try {
-      // Add message to Firestore
-      await addDoc(collection(db, 'constellations', constellationId, 'messages'), {
-        text: newMessage,
-        senderId: userId,
-        createdAt: serverTimestamp(),
-      });
+      // Add message to Supabase
+      const { error } = await supabase
+        .from('messages')
+        .insert([{
+          constellation_id: constellationId,
+          user_id: user.id,
+          content: newMessage,
+        }]);
+      
+      if (error) throw error;
       
       // Clear input
       setNewMessage('');
@@ -133,7 +157,7 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
-    const isCurrentUser = item.senderId === userId;
+    const isCurrentUser = item.user_id === user?.id;
     
     return (
       <View
@@ -142,9 +166,9 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
           isCurrentUser ? styles.currentUserMessage : styles.otherUserMessage,
         ]}
       >
-        <Text style={styles.messageText}>{item.text}</Text>
+        <Text style={styles.messageText}>{item.content}</Text>
         <Text style={styles.messageTime}>
-          {formatTime(item.createdAt)}
+          {formatTime(new Date(item.created_at))}
         </Text>
       </View>
     );
@@ -168,7 +192,6 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
           data={messages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
-          inverted
           contentContainerStyle={styles.messageList}
         />
 

@@ -7,26 +7,18 @@ import {
   TouchableOpacity,
   Image,
   FlatList,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
 import Card, { TouchableCard } from '../components/Card';
-import { auth, db } from '../services/firebase';
-import { 
-  doc, 
-  getDoc, 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
-  orderBy, 
-  limit,
-  onSnapshot,
-  Timestamp,
-} from 'firebase/firestore';
+import { supabase } from '../utils/supabase';
 import { StarType } from '../types';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../hooks/useAuth';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
@@ -40,7 +32,17 @@ interface DailyActivity {
   completed: boolean;
 }
 
+interface Message {
+  id: string;
+  content: string;
+  user_id: string;
+  created_at: string;
+  sender_name?: string;
+  profiles?: { name: string };
+}
+
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
+  const { user } = useAuth();
   const [userName, setUserName] = useState('');
   const [partnerName, setPartnerName] = useState('');
   const [constellationName, setConstellationName] = useState('');
@@ -48,311 +50,379 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [userStarType, setUserStarType] = useState<StarType | null>(null);
   const [partnerStarType, setPartnerStarType] = useState<StarType | null>(null);
   const [dailyActivities, setDailyActivities] = useState<DailyActivity[]>([]);
-  const [recentMessages, setRecentMessages] = useState<any[]>([]);
+  const [recentMessages, setRecentMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
-  const [constellationId, setConstellationId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(true);
+  const [subscription, setSubscription] = useState<any>(null);
 
   useEffect(() => {
-    loadUserData();
-  }, []);
+    if (user) {
+      loadUserData();
+      generateDailyActivities();
+    } else {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Welcome' }],
+      });
+    }
+    
+    return () => {
+      // Clean up subscription
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, [user]);
 
   const loadUserData = async () => {
+    if (!user) return;
+    
     try {
-      // Get the current user ID from local storage
-      // In a real app, we would use auth.currentUser.uid
-      // For our demo, we'll use the latest user created
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'), limit(1));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const userData = querySnapshot.docs[0].data();
-        const userId = querySnapshot.docs[0].id;
-        
-        setUserName(userData.name || 'User');
-        setUserStarType(userData.starType);
-        setConstellationId(userData.constellationId);
+      setLoading(true);
 
-        if (userData.constellationId) {
-          // Get constellation data
-          const constellationDoc = await getDoc(doc(db, 'constellations', userData.constellationId));
-          if (constellationDoc.exists()) {
-            const constellationData = constellationDoc.data();
-            setConstellationName(constellationData.name || 'Your Constellation');
-            setBondingStrength(constellationData.bondingStrength || 0);
+      // Get user profile
+      const { data: userData, error: userError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (userError) throw userError;
+      
+      setUserName(userData.name || 'User');
+      setUserStarType(userData.starType || null);
+
+      // Get user's constellation membership
+      const { data: memberData, error: memberError } = await supabase
+        .from('constellation_members')
+        .select('constellation_id')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (memberError) {
+        // User doesn't have a constellation yet
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'CreateConstellation' }],
+        });
+        return;
+      }
+
+      if (memberData && memberData.constellation_id) {
+        // Get constellation data
+        const { data: constellationData, error: constellationError } = await supabase
+          .from('constellations')
+          .select('*')
+          .eq('id', memberData.constellation_id)
+          .single();
+        
+        if (constellationError) throw constellationError;
+        
+        setConstellationName(constellationData.name || 'Your Constellation');
+        setBondingStrength(constellationData.bonding_strength || 0);
+
+        // Get partner data
+        const { data: partners, error: partnersError } = await supabase
+          .from('constellation_members')
+          .select('user_id')
+          .eq('constellation_id', memberData.constellation_id)
+          .neq('user_id', user.id);
+        
+        if (partnersError) throw partnersError;
+        
+        if (partners && partners.length > 0) {
+          const partnerId = partners[0].user_id;
+          
+          // Get partner profile
+          const { data: partnerData, error: partnerError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', partnerId)
+            .single();
             
-            // Find partner
-            const partnerIds = constellationData.partnerIds || [];
-            const partnerId = partnerIds.find((id: string) => id !== userId);
-            
-            if (partnerId) {
-              // Get partner data
-              const partnerDoc = await getDoc(doc(db, 'users', partnerId));
-              if (partnerDoc.exists()) {
-                const partnerData = partnerDoc.data();
-                setPartnerName(partnerData.name || 'Partner');
-                setPartnerStarType(partnerData.starType);
-              }
-              
-              // Listen for recent messages
-              listenForRecentMessages(userData.constellationId);
-            }
+          if (!partnerError && partnerData) {
+            setPartnerName(partnerData.name || 'Partner');
+            setPartnerStarType(partnerData.starType || null);
           }
         }
+
+        // Get recent messages
+        const { data: messages, error: messagesError } = await supabase
+          .from('messages')
+          .select(`
+            id,
+            content,
+            user_id,
+            created_at,
+            profiles(name)
+          `)
+          .eq('constellation_id', memberData.constellation_id)
+          .order('created_at', { ascending: false })
+          .limit(5);
         
-        // Generate daily activities
-        setDailyActivities(generateDailyActivities());
+        if (!messagesError && messages) {
+          const formattedMessages = messages.map((msg: any) => ({
+            id: msg.id,
+            content: msg.content,
+            user_id: msg.user_id,
+            created_at: msg.created_at,
+            sender_name: msg.profiles?.name || 'Unknown'
+          }));
+          setRecentMessages(formattedMessages);
+        }
+        
+        // Subscribe to new messages
+        const newSubscription = supabase
+          .channel(`messages:constellation_id=eq.${memberData.constellation_id}`)
+          .on('postgres_changes', { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'messages',
+            filter: `constellation_id=eq.${memberData.constellation_id}`
+          }, async (payload) => {
+            // Get sender name
+            const { data: senderData } = await supabase
+              .from('profiles')
+              .select('name')
+              .eq('id', payload.new.user_id)
+              .single();
+            
+            // Add new message to the list
+            const newMessage = {
+              ...payload.new,
+              sender_name: senderData?.name || 'Unknown'
+            } as Message;
+            
+            setRecentMessages(prevMessages => {
+              const updatedMessages = [newMessage, ...prevMessages];
+              return updatedMessages.slice(0, 5); // Keep only the 5 most recent
+            });
+          })
+          .subscribe();
+        
+        setSubscription(newSubscription);
       }
+      
+      setLoading(false);
     } catch (error) {
       console.error('Error loading user data:', error);
-    } finally {
+      setError('Failed to load data. Please try again.');
       setLoading(false);
     }
   };
 
-  const listenForRecentMessages = (constellationId: string) => {
-    const messagesRef = collection(db, 'messages');
-    const q = query(
-      messagesRef,
-      where('constellationId', '==', constellationId),
-      orderBy('createdAt', 'desc'),
-      limit(3)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messages: any[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        messages.push({
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate() || new Date(),
-        });
-      });
-      setRecentMessages(messages);
-    });
-
-    return unsubscribe;
-  };
-
   const generateDailyActivities = () => {
-    // In a real app, these would come from the backend
+    // This would ideally come from the server, but for now we'll generate some sample activities
     const activities: DailyActivity[] = [
       {
         id: '1',
         title: 'Daily Connection Quiz',
-        description: 'Take a quick quiz together to strengthen your bond',
+        description: 'Take today\'s quiz to strengthen your bond',
         type: 'quiz',
         completed: false,
       },
       {
         id: '2',
-        title: 'Share a Memory',
-        description: 'Send your partner a photo of a special memory',
+        title: 'Send a Message',
+        description: 'Share something meaningful with your partner',
         type: 'chat',
         completed: false,
       },
       {
         id: '3',
-        title: 'Appreciation Message',
-        description: 'Tell your partner something you appreciate about them',
-        type: 'chat',
+        title: 'Relationship Reflection',
+        description: 'Reflect on a special memory together',
+        type: 'activity',
         completed: false,
       },
     ];
-    
-    return activities;
+
+    setDailyActivities(activities);
   };
 
   const handleActivityPress = (activity: DailyActivity) => {
-    if (activity.type === 'quiz') {
-      navigation.navigate('Quiz');
-    } else if (activity.type === 'chat') {
-      navigation.navigate('Chat');
+    switch (activity.type) {
+      case 'quiz':
+        navigation.navigate('Quiz');
+        break;
+      case 'chat':
+        navigation.navigate('Chat');
+        break;
+      case 'activity':
+        Alert.alert('Activity', 'This feature is coming soon!');
+        break;
     }
   };
 
   const renderConstellationCard = () => {
     return (
-      <TouchableCard
-        style={styles.constellationCard}
-        onPress={() => navigation.navigate('ConstellationView')}
-      >
+      <Card style={styles.constellationCard}>
         <View style={styles.constellationHeader}>
-          <View>
-            <Text style={styles.constellationTitle}>{constellationName}</Text>
-            <Text style={styles.constellationSubtitle}>
-              Bonding Strength: {bondingStrength}%
-            </Text>
+          <Text style={styles.constellationName}>{constellationName}</Text>
+          <TouchableOpacity 
+            style={styles.viewButton}
+            onPress={() => navigation.navigate('ConstellationView')}
+          >
+            <Text style={styles.viewButtonText}>View</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.starsContainer}>
+          <View style={styles.starCard}>
+            <Image 
+              source={
+                userStarType === StarType.LUMINARY 
+                  ? require('../assets/images/luminary-star.png')
+                  : require('../assets/images/navigator-star.png')
+              }
+              style={styles.starImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.starName}>{userName}</Text>
           </View>
-          <View style={styles.strengthIndicator}>
+          
+          <View style={styles.connectionLine} />
+          
+          <View style={styles.starCard}>
+            <Image 
+              source={
+                partnerStarType === StarType.LUMINARY 
+                  ? require('../assets/images/luminary-star.png')
+                  : require('../assets/images/navigator-star.png')
+              }
+              style={styles.starImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.starName}>{partnerName}</Text>
+          </View>
+        </View>
+        
+        <View style={styles.bondingContainer}>
+          <Text style={styles.bondingText}>Bonding Strength: {bondingStrength}%</Text>
+          <View style={styles.bondingBar}>
             <View 
               style={[
-                styles.strengthFill, 
+                styles.bondingProgress, 
                 { width: `${bondingStrength}%` }
               ]} 
             />
           </View>
         </View>
-        
-        <View style={styles.starsContainer}>
-          <View style={styles.starItem}>
-            <Image
-              source={userStarType === StarType.LUMINARY 
-                ? require('../assets/images/luminary-star.png')
-                : require('../assets/images/navigator-star.png')}
-              style={[
-                styles.starImage,
-                { tintColor: userStarType === StarType.LUMINARY ? COLORS.luminary : COLORS.navigator }
-              ]}
-              resizeMode="contain"
-            />
-            <Text style={styles.starName}>{userName}</Text>
-            <Text style={styles.starType}>
-              {userStarType === StarType.LUMINARY ? 'Luminary' : 'Navigator'}
-            </Text>
+      </Card>
+    );
+  };
+
+  const renderActivityItem = ({ item }: { item: DailyActivity }) => {
+    return (
+      <TouchableCard 
+        style={styles.activityCard}
+        onPress={() => handleActivityPress(item)}
+      >
+        <View style={styles.activityContent}>
+          <View style={styles.activityIconContainer}>
+            {item.type === 'quiz' && (
+              <Ionicons name="help-circle-outline" size={24} color={COLORS.primary} />
+            )}
+            {item.type === 'chat' && (
+              <Ionicons name="chatbubble-outline" size={24} color={COLORS.primary} />
+            )}
+            {item.type === 'activity' && (
+              <Ionicons name="heart-outline" size={24} color={COLORS.primary} />
+            )}
           </View>
-          
-          <View style={styles.connectionLine} />
-          
-          <View style={styles.starItem}>
-            <Image
-              source={partnerStarType === StarType.LUMINARY 
-                ? require('../assets/images/luminary-star.png')
-                : require('../assets/images/navigator-star.png')}
-              style={[
-                styles.starImage,
-                { tintColor: partnerStarType === StarType.LUMINARY ? COLORS.luminary : COLORS.navigator }
-              ]}
-              resizeMode="contain"
-            />
-            <Text style={styles.starName}>{partnerName}</Text>
-            <Text style={styles.starType}>
-              {partnerStarType === StarType.LUMINARY ? 'Luminary' : 'Navigator'}
-            </Text>
+          <View style={styles.activityTextContainer}>
+            <Text style={styles.activityTitle}>{item.title}</Text>
+            <Text style={styles.activityDescription}>{item.description}</Text>
           </View>
+          <Ionicons name="chevron-forward" size={20} color={COLORS.gray500} />
         </View>
-        
-        <Text style={styles.viewDetails}>View Constellation Details</Text>
       </TouchableCard>
     );
   };
 
-  const renderDailyActivities = () => {
-    return (
-      <View style={styles.sectionContainer}>
-        <Text style={styles.sectionTitle}>Daily Activities</Text>
-        <Text style={styles.sectionSubtitle}>
-          Complete these together to strengthen your bond
-        </Text>
-        
-        {dailyActivities.map((activity) => (
-          <TouchableCard
-            key={activity.id}
-            style={styles.activityCard}
-            onPress={() => handleActivityPress(activity)}
-          >
-            <View style={styles.activityContent}>
-              <View style={styles.activityInfo}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activityDescription}>
-                  {activity.description}
-                </Text>
-              </View>
-              <View 
-                style={[
-                  styles.activityStatus,
-                  activity.completed ? styles.activityCompleted : styles.activityPending
-                ]}
-              >
-                <Text style={styles.activityStatusText}>
-                  {activity.completed ? 'Done' : 'To Do'}
-                </Text>
-              </View>
-            </View>
-          </TouchableCard>
-        ))}
-      </View>
-    );
-  };
-
-  const renderRecentMessages = () => {
-    if (recentMessages.length === 0) {
-      return (
-        <View style={styles.sectionContainer}>
-          <Text style={styles.sectionTitle}>Recent Messages</Text>
-          <Card style={styles.emptyMessagesCard}>
-            <Text style={styles.emptyMessagesText}>
-              No recent messages. Start a conversation with your partner!
-            </Text>
-          </Card>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.sectionContainer}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent Messages</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Chat')}>
-            <Text style={styles.viewAllText}>View All</Text>
-          </TouchableOpacity>
-        </View>
-        
-        {recentMessages.map((message) => (
-          <Card key={message.id} style={styles.messageCard}>
-            <View style={styles.messageHeader}>
-              <Text style={styles.messageSender}>
-                {message.senderId === auth.currentUser?.uid ? 'You' : partnerName}
-              </Text>
-              <Text style={styles.messageTime}>
-                {formatMessageTime(message.createdAt)}
-              </Text>
-            </View>
-            <Text style={styles.messageText}>{message.text}</Text>
-          </Card>
-        ))}
-      </View>
-    );
-  };
-
-  const formatMessageTime = (date: Date) => {
-    const now = new Date();
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+  const renderMessageItem = ({ item }: { item: Message }) => {
+    const isCurrentUser = item.user_id === user?.id;
+    const displayName = isCurrentUser ? 'You' : (item.sender_name || 'Partner');
     
-    if (diffInHours < 24) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (diffInHours < 48) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    }
+    return (
+      <View style={styles.messageItem}>
+        <View style={styles.messageHeader}>
+          <Text style={styles.messageSender}>{displayName}</Text>
+          <Text style={styles.messageTime}>
+            {new Date(item.created_at).toLocaleTimeString([], {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Text>
+        </View>
+        <Text style={styles.messageText}>{item.content}</Text>
+      </View>
+    );
   };
+
+  if (loading) {
+    return (
+      <Screen>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
-    <Screen
-      header={{
-        title: 'Home',
-        rightIcon: (
-          <TouchableOpacity onPress={() => navigation.navigate('Settings')}>
-            <Image
-              source={require('../assets/images/settings-icon.png')}
-              style={styles.settingsIcon}
-            />
-          </TouchableOpacity>
-        ),
-      }}
-    >
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.greeting}>Welcome back, {userName}!</Text>
+    <Screen>
+      <ScrollView style={styles.container}>
+        {error && (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
         
         {renderConstellationCard()}
-        {renderDailyActivities()}
-        {renderRecentMessages()}
+        
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Daily Activities</Text>
+          <FlatList
+            data={dailyActivities}
+            renderItem={renderActivityItem}
+            keyExtractor={(item) => item.id}
+            scrollEnabled={false}
+          />
+        </View>
+        
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Messages</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Chat')}>
+              <Text style={styles.viewAllText}>View All</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {recentMessages.length > 0 ? (
+            <Card style={styles.messagesCard}>
+              <FlatList
+                data={recentMessages}
+                renderItem={renderMessageItem}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+              />
+            </Card>
+          ) : (
+            <Card style={styles.emptyMessagesCard}>
+              <Text style={styles.emptyMessagesText}>
+                No messages yet. Start a conversation with your partner!
+              </Text>
+              <TouchableOpacity
+                style={styles.startChatButton}
+                onPress={() => navigation.navigate('Chat')}
+              >
+                <Text style={styles.startChatButtonText}>Start Chat</Text>
+              </TouchableOpacity>
+            </Card>
+          )}
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -361,88 +431,95 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  contentContainer: {
     padding: SPACING.l,
-    paddingBottom: SPACING.xxl,
   },
-  greeting: {
-    fontSize: FONTS.h3,
-    fontWeight: 'bold',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorContainer: {
+    backgroundColor: COLORS.error,
+    padding: SPACING.m,
+    borderRadius: 8,
+    marginBottom: SPACING.m,
+  },
+  errorText: {
     color: COLORS.white,
-    marginBottom: SPACING.l,
-  },
-  settingsIcon: {
-    width: 24,
-    height: 24,
-    tintColor: COLORS.white,
+    fontSize: FONTS.body2,
+    textAlign: 'center',
   },
   constellationCard: {
     marginBottom: SPACING.l,
-    padding: SPACING.l,
+    padding: SPACING.m,
   },
   constellationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: SPACING.m,
   },
-  constellationTitle: {
+  constellationName: {
     fontSize: FONTS.h3,
     fontWeight: 'bold',
     color: COLORS.white,
-    marginBottom: SPACING.xs,
   },
-  constellationSubtitle: {
-    fontSize: FONTS.body2,
-    color: COLORS.gray300,
-    marginBottom: SPACING.s,
+  viewButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.m,
+    paddingVertical: SPACING.xs,
+    borderRadius: 16,
   },
-  strengthIndicator: {
-    height: 6,
-    backgroundColor: COLORS.gray700,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginTop: SPACING.xs,
-  },
-  strengthFill: {
-    height: '100%',
-    backgroundColor: COLORS.accent,
+  viewButtonText: {
+    color: COLORS.white,
+    fontSize: FONTS.caption,
+    fontWeight: 'bold',
   },
   starsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: SPACING.m,
+    marginBottom: SPACING.m,
   },
-  starItem: {
+  starCard: {
     alignItems: 'center',
-    flex: 1,
+    width: '40%',
   },
   starImage: {
     width: 60,
     height: 60,
-    marginBottom: SPACING.xs,
+    marginBottom: SPACING.s,
   },
   starName: {
     fontSize: FONTS.body2,
-    fontWeight: 'bold',
     color: COLORS.white,
-    marginBottom: SPACING.xs,
-  },
-  starType: {
-    fontSize: FONTS.caption,
-    color: COLORS.gray300,
+    textAlign: 'center',
   },
   connectionLine: {
     height: 2,
-    backgroundColor: COLORS.gray700,
-    width: '20%',
+    backgroundColor: COLORS.accent,
+    width: '15%',
   },
-  viewDetails: {
+  bondingContainer: {
+    alignItems: 'center',
+  },
+  bondingText: {
     fontSize: FONTS.body2,
-    color: COLORS.accent,
-    textAlign: 'center',
-    marginTop: SPACING.s,
+    color: COLORS.gray300,
+    marginBottom: SPACING.s,
   },
-  sectionContainer: {
+  bondingBar: {
+    width: '100%',
+    height: 6,
+    backgroundColor: COLORS.gray700,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  bondingProgress: {
+    height: '100%',
+    backgroundColor: COLORS.accent,
+  },
+  section: {
     marginBottom: SPACING.l,
   },
   sectionHeader: {
@@ -455,28 +532,31 @@ const styles = StyleSheet.create({
     fontSize: FONTS.h4,
     fontWeight: 'bold',
     color: COLORS.white,
-    marginBottom: SPACING.xs,
-  },
-  sectionSubtitle: {
-    fontSize: FONTS.body2,
-    color: COLORS.gray300,
     marginBottom: SPACING.m,
   },
   viewAllText: {
+    color: COLORS.primary,
     fontSize: FONTS.body2,
-    color: COLORS.accent,
   },
   activityCard: {
     marginBottom: SPACING.m,
+    padding: SPACING.m,
   },
   activityContent: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  activityInfo: {
-    flex: 1,
+  activityIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.gray800,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: SPACING.m,
+  },
+  activityTextContainer: {
+    flex: 1,
   },
   activityTitle: {
     fontSize: FONTS.body1,
@@ -488,29 +568,18 @@ const styles = StyleSheet.create({
     fontSize: FONTS.body2,
     color: COLORS.gray300,
   },
-  activityStatus: {
-    paddingHorizontal: SPACING.m,
-    paddingVertical: SPACING.xs,
-    borderRadius: SIZES.borderRadius,
+  messagesCard: {
+    padding: SPACING.m,
   },
-  activityPending: {
-    backgroundColor: COLORS.primary,
-  },
-  activityCompleted: {
-    backgroundColor: COLORS.success,
-  },
-  activityStatusText: {
-    fontSize: FONTS.caption,
-    fontWeight: 'bold',
-    color: COLORS.white,
-  },
-  messageCard: {
+  messageItem: {
     marginBottom: SPACING.m,
+    paddingBottom: SPACING.m,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.gray700,
   },
   messageHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: SPACING.xs,
   },
   messageSender: {
@@ -520,21 +589,32 @@ const styles = StyleSheet.create({
   },
   messageTime: {
     fontSize: FONTS.caption,
-    color: COLORS.gray400,
+    color: COLORS.gray500,
   },
   messageText: {
     fontSize: FONTS.body2,
-    color: COLORS.gray200,
+    color: COLORS.gray300,
   },
   emptyMessagesCard: {
-    padding: SPACING.m,
+    padding: SPACING.l,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   emptyMessagesText: {
     fontSize: FONTS.body2,
     color: COLORS.gray300,
     textAlign: 'center',
+    marginBottom: SPACING.m,
+  },
+  startChatButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.l,
+    paddingVertical: SPACING.m,
+    borderRadius: 8,
+  },
+  startChatButtonText: {
+    color: COLORS.white,
+    fontSize: FONTS.body2,
+    fontWeight: 'bold',
   },
 });
 

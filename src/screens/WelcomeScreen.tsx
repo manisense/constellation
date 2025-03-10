@@ -20,7 +20,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
         <View style={styles.container}>
           <View style={styles.logoContainer}>
             <Image
-              source={require('../assets/icons/logo.png')}
+              source={require('../assets/constellation-logo.png')}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -48,15 +48,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
                 navigation.navigate('Register');
               }}
               variant="outline"
-              style={styles.button}
-            />
-            <Button
-              title="I Have an Invite Code"
-              onPress={() => {
-                navigation.navigate('JoinConstellation');
-              }}
-              variant="secondary"
-              style={styles.button}
+              style={styles.secondaryButton}
             />
           </View>
         </View>
@@ -108,6 +100,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xl,
   },
   button: {
+    marginBottom: SPACING.m,
+  },
+  secondaryButton: {
     marginBottom: SPACING.m,
   },
 });

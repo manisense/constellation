@@ -13,25 +13,21 @@ import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
 import Button from '../components/Button';
 import Card from '../components/Card';
-import { auth, db } from '../services/firebase';
-import { 
-  doc, 
-  getDoc, 
-  updateDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  orderBy,
-  limit,
-  serverTimestamp,
-  onSnapshot,
-} from 'firebase/firestore';
-import { StarType, Question, Option, Answer } from '../types';
+import { supabase } from '../utils/supabase';
+import { StarType, Question, Option } from '../types';
+import { useAuth } from '../hooks/useAuth';
 
 type QuizScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Quiz'>;
 };
+
+// Extended Answer interface with additional properties needed for our calculations
+interface Answer {
+  questionId: string;
+  optionId: string;
+  value: number;
+  type: StarType;
+}
 
 // Sample quiz questions
 const quizQuestions: Question[] = [
@@ -188,6 +184,7 @@ const quizQuestions: Question[] = [
 ];
 
 const QuizScreen: React.FC<QuizScreenProps> = ({ navigation }) => {
+  const { user } = useAuth();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -195,45 +192,53 @@ const QuizScreen: React.FC<QuizScreenProps> = ({ navigation }) => {
   const [partnerProgress, setPartnerProgress] = useState(0);
   const [constellationId, setConstellationId] = useState<string | null>(null);
   const [partnerId, setPartnerId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [subscription, setSubscription] = useState<any>(null);
 
   useEffect(() => {
-    // Load user's constellation info
-    loadConstellationInfo();
-  }, []);
+    if (user) {
+      loadConstellationInfo();
+    }
+    
+    return () => {
+      // Clean up subscription
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, [user]);
 
   const loadConstellationInfo = async () => {
+    if (!user) return;
+    
     try {
-      // Get the current user ID from local storage
-      // In a real app, we would use auth.currentUser.uid
-      // For our demo, we'll use the latest user created
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'), limit(1));
-      const querySnapshot = await getDocs(q);
+      // Get user's constellation membership
+      const { data: memberData, error: memberError } = await supabase
+        .from('constellation_members')
+        .select('constellation_id')
+        .eq('user_id', user.id)
+        .single();
       
-      if (!querySnapshot.empty) {
-        const userData = querySnapshot.docs[0].data();
-        const userId = querySnapshot.docs[0].id;
+      if (memberError) {
+        // User doesn't have a constellation yet
+        return;
+      }
+      
+      if (memberData && memberData.constellation_id) {
+        setConstellationId(memberData.constellation_id);
         
-        setUserId(userId);
+        // Get partner data
+        const { data: partners, error: partnersError } = await supabase
+          .from('constellation_members')
+          .select('user_id')
+          .eq('constellation_id', memberData.constellation_id)
+          .neq('user_id', user.id);
         
-        // Get constellation data
-        if (userData.constellationId) {
-          setConstellationId(userData.constellationId);
-          
-          const constellationDoc = await getDoc(doc(db, 'constellations', userData.constellationId));
-          if (constellationDoc.exists()) {
-            const constellationData = constellationDoc.data();
-            
-            // Find partner
-            const partnerIds = constellationData.partnerIds || [];
-            const partnerId = partnerIds.find((id: string) => id !== userId);
-            
-            if (partnerId) {
-              setPartnerId(partnerId);
-              listenToPartnerProgress(partnerId, userData.constellationId);
-            }
-          }
+        if (partnersError) throw partnersError;
+        
+        if (partners && partners.length > 0) {
+          const partnerId = partners[0].user_id;
+          setPartnerId(partnerId);
+          listenToPartnerProgress(partnerId, memberData.constellation_id);
         }
       }
     } catch (error) {
@@ -244,60 +249,90 @@ const QuizScreen: React.FC<QuizScreenProps> = ({ navigation }) => {
   };
 
   const listenToPartnerProgress = (partnerId: string, constId: string) => {
-    // Create a listener for partner's quiz progress
-    const quizProgressRef = collection(db, 'quizProgress');
-    const q = query(
-      quizProgressRef, 
-      where('userId', '==', partnerId),
-      where('constellationId', '==', constId)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const progressData = snapshot.docs[0].data();
-        setPartnerProgress(progressData.progress || 0);
-        
-        if (progressData.completed) {
-          setPartnerStatus('completed');
-        } else if (progressData.progress > 0) {
-          setPartnerStatus('ready');
+    // Create a listener for partner's quiz progress using Supabase realtime
+    const newSubscription = supabase
+      .channel(`quiz_progress:user_id=eq.${partnerId}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'quiz_progress',
+        filter: `user_id=eq.${partnerId} AND constellation_id=eq.${constId}`
+      }, (payload: any) => {
+        if (payload.new) {
+          const newData = payload.new;
+          setPartnerProgress(newData.progress || 0);
+          
+          if (newData.completed) {
+            setPartnerStatus('completed');
+          } else if (newData.progress > 0) {
+            setPartnerStatus('ready');
+          }
         }
-      }
-    });
+      })
+      .subscribe();
+    
+    setSubscription(newSubscription);
 
     // Update our progress for partner to see
     updateQuizProgress(0);
 
-    return unsubscribe;
+    return () => {
+      if (newSubscription) {
+        newSubscription.unsubscribe();
+      }
+    };
   };
 
   const updateQuizProgress = async (progress: number, completed = false) => {
     try {
-      if (!userId || !constellationId) return;
+      if (!user || !constellationId) return;
 
-      // Update user's quiz progress
-      await updateDoc(doc(db, 'users', userId), {
-        quizProgress: {
-          progress,
-          completed,
-          updatedAt: serverTimestamp(),
-        },
-      });
+      // Check if a record exists
+      const { data: existingProgress } = await supabase
+        .from('quiz_progress')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('constellation_id', constellationId)
+        .single();
+      
+      if (existingProgress) {
+        // Update existing record
+        await supabase
+          .from('quiz_progress')
+          .update({
+            progress,
+            completed,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingProgress.id);
+      } else {
+        // Insert new record
+        await supabase
+          .from('quiz_progress')
+          .insert({
+            user_id: user.id,
+            constellation_id: constellationId,
+            progress,
+            completed,
+            updated_at: new Date().toISOString()
+          });
+      }
     } catch (error) {
       console.error('Error updating quiz progress:', error);
     }
   };
 
   const handleSelectOption = (option: Option) => {
-    const currentQuestion = quizQuestions[currentQuestionIndex];
-    
-    // Add answer
+    // Add answer to list
     const newAnswer: Answer = {
-      questionId: currentQuestion.id,
+      questionId: quizQuestions[currentQuestionIndex].id,
       optionId: option.id,
+      value: option.value,
+      type: option.type,
     };
     
-    setAnswers([...answers, newAnswer]);
+    const newAnswers = [...answers, newAnswer];
+    setAnswers(newAnswers);
     
     // Update progress
     const progress = Math.round(((currentQuestionIndex + 1) / quizQuestions.length) * 100);
@@ -307,77 +342,62 @@ const QuizScreen: React.FC<QuizScreenProps> = ({ navigation }) => {
     if (currentQuestionIndex < quizQuestions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
-      finishQuiz([...answers, newAnswer]);
+      finishQuiz(newAnswers);
     }
   };
 
   const calculateStarType = (quizAnswers: Answer[]): StarType => {
-    let luminaryScore = 0;
-    let navigatorScore = 0;
-
-    quizAnswers.forEach((answer) => {
-      const question = quizQuestions.find((q) => q.id === answer.questionId);
-      if (question) {
-        const option = question.options.find((o) => o.id === answer.optionId);
-        if (option) {
-          if (option.type === StarType.LUMINARY) {
-            luminaryScore += option.value;
-          } else {
-            navigatorScore += option.value;
-          }
-        }
+    // Count points for each star type
+    let luminaryPoints = 0;
+    let navigatorPoints = 0;
+    
+    quizAnswers.forEach(answer => {
+      if (answer.type === StarType.LUMINARY) {
+        luminaryPoints += answer.value;
+      } else if (answer.type === StarType.NAVIGATOR) {
+        navigatorPoints += answer.value;
       }
     });
-
-    return luminaryScore >= navigatorScore ? StarType.LUMINARY : StarType.NAVIGATOR;
+    
+    // Determine star type based on points
+    if (luminaryPoints > navigatorPoints) {
+      return StarType.LUMINARY;
+    } else {
+      return StarType.NAVIGATOR;
+    }
   };
 
   const finishQuiz = async (finalAnswers: Answer[]) => {
     try {
-      if (!userId || !constellationId) return;
+      if (!user || !constellationId) return;
 
       // Calculate star type
       const starType = calculateStarType(finalAnswers);
 
       // Create quiz result
       const quizResultId = `quiz_${Date.now()}`;
-      const quizResult = {
-        id: quizResultId,
-        quizId: 'personality_quiz',
-        userId,
-        answers: finalAnswers,
-        result: starType,
-        createdAt: serverTimestamp(),
-      };
-
-      // Update user with star type
-      await updateDoc(doc(db, 'users', userId), {
-        starType,
-        quizCompleted: true,
-      });
-
-      // Update constellation with quiz result
-      const constellationRef = doc(db, 'constellations', constellationId);
-      const constellationDoc = await getDoc(constellationRef);
       
-      if (constellationDoc.exists()) {
-        const constellationData = constellationDoc.data();
-        const quizResults = constellationData.quizResults || [];
-        const partnerIds = constellationData.partnerIds || [];
-        
-        // Add user to constellation if not already added
-        if (!partnerIds.includes(userId)) {
-          partnerIds.push(userId);
-        }
-        
-        // Add quiz result
-        quizResults.push(quizResult);
-        
-        await updateDoc(constellationRef, {
-          partnerIds,
-          quizResults,
+      // Update user profile with star type
+      await supabase
+        .from('profiles')
+        .update({
+          starType,
+          quizCompleted: true
+        })
+        .eq('id', user.id);
+
+      // Insert quiz result
+      await supabase
+        .from('quiz_results')
+        .insert({
+          id: quizResultId,
+          quiz_id: 'personality_quiz',
+          user_id: user.id,
+          constellation_id: constellationId,
+          answers: finalAnswers,
+          result: starType,
+          created_at: new Date().toISOString()
         });
-      }
 
       // Update quiz progress
       await updateQuizProgress(100, true);

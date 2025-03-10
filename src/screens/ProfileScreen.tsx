@@ -15,15 +15,15 @@ import Screen from '../components/Screen';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import * as ImagePicker from 'expo-image-picker';
-import { db, storage } from '../services/firebase';
-import { doc, updateDoc, getDoc, collection, query, orderBy, getDocs, limit, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { supabase, uploadFile, getFileUrl } from '../utils/supabase';
+import { useAuth } from '../hooks/useAuth';
 
 type ProfileScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'>;
 };
 
 const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
+  const { user } = useAuth();
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
   const [starName, setStarName] = useState('');
@@ -31,7 +31,6 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   const [newInterest, setNewInterest] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [userId, setUserId] = useState('');
   const [constellationId, setConstellationId] = useState<string | null>(null);
   const [newImageUri, setNewImageUri] = useState<string | null>(null);
 
@@ -54,25 +53,37 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   }, []);
 
   const loadProfileData = async () => {
+    if (!user) return;
+    
     try {
-      // Get the current user ID from local storage
-      // In a real app, we would use auth.currentUser.uid
-      // For our demo, we'll use the latest user created
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'), limit(1));
-      const querySnapshot = await getDocs(q);
+      setLoading(true);
       
-      if (!querySnapshot.empty) {
-        const userData = querySnapshot.docs[0].data();
-        const userId = querySnapshot.docs[0].id;
+      // Get user profile from Supabase
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (error) throw error;
+      
+      if (data) {
+        setName(data.name || '');
+        setAbout(data.about || '');
+        setStarName(data.starName || '');
+        setInterests(data.interests || []);
+        setProfileImage(data.avatar_url || null);
         
-        setUserId(userId);
-        setName(userData.name || '');
-        setAbout(userData.about || '');
-        setStarName(userData.starName || '');
-        setInterests(userData.interests || []);
-        setProfileImage(userData.photoURL || null);
-        setConstellationId(userData.constellationId || null);
+        // Get constellation membership
+        const { data: memberData, error: memberError } = await supabase
+          .from('constellation_members')
+          .select('constellation_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (!memberError && memberData) {
+          setConstellationId(memberData.constellation_id);
+        }
       }
     } catch (error) {
       console.error('Error loading profile data:', error);
@@ -140,19 +151,20 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
 
   const uploadProfileImage = async (): Promise<string | null> => {
     try {
-      if (!newImageUri) return null;
+      if (!newImageUri || !user) return null;
 
       // Convert image to blob
       const response = await fetch(newImageUri);
       const blob = await response.blob();
 
-      // Upload to Firebase Storage
-      const storageRef = ref(storage, `profile_images/${userId}_${Date.now()}`);
-      await uploadBytes(storageRef, blob);
-
-      // Get download URL
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
+      // Upload to Supabase Storage
+      const filePath = `profile_images/${user.id}_${Date.now()}`;
+      const { data, error } = await uploadFile('avatars', filePath, blob);
+      
+      if (error) throw error;
+      
+      // Get public URL
+      return getFileUrl('avatars', filePath);
     } catch (error) {
       console.error('Error uploading image:', error);
       return null;
@@ -160,27 +172,32 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   };
 
   const handleSaveProfile = async () => {
-    if (!validateName() || !validateAbout() || !validateStarName()) {
+    if (!validateName() || !validateAbout() || !validateStarName() || !user) {
       return;
     }
 
     setLoading(true);
     try {
-      let photoURL = profileImage;
+      let avatarUrl = profileImage;
 
       if (newImageUri) {
-        photoURL = await uploadProfileImage();
+        avatarUrl = await uploadProfileImage();
       }
 
-      // Update the user document
-      await updateDoc(doc(db, 'users', userId), {
-        name,
-        about,
-        starName,
-        interests,
-        photoURL,
-        updatedAt: serverTimestamp(),
-      });
+      // Update the user profile in Supabase
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          name,
+          about,
+          starName,
+          interests,
+          avatar_url: avatarUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
 
       // Navigate to quiz
       navigation.navigate('Quiz');
@@ -250,7 +267,6 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
                 onPress={() => handleRemoveInterest(interest)}
               >
                 <Text style={styles.interestText}>{interest}</Text>
-                <Text style={styles.removeIcon}>×</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -260,21 +276,23 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
               placeholder="Add an interest"
               value={newInterest}
               onChangeText={setNewInterest}
-              containerStyle={styles.interestInput}
+              containerStyle={styles.addInterestInput}
+              returnKeyType="done"
+              onSubmitEditing={handleAddInterest}
             />
-            <Button
-              title="Add"
+            <TouchableOpacity
+              style={styles.addInterestButton}
               onPress={handleAddInterest}
-              size="small"
-              style={styles.addButton}
-            />
+            >
+              <Text style={styles.addInterestButtonText}>Add</Text>
+            </TouchableOpacity>
           </View>
 
           <Button
-            title="Continue to Quiz"
+            title="Save Profile"
             onPress={handleSaveProfile}
             loading={loading}
-            style={styles.button}
+            style={styles.saveButton}
           />
         </View>
       </View>
@@ -286,23 +304,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: SPACING.l,
-    alignItems: 'center',
   },
   title: {
     fontSize: FONTS.h2,
     fontWeight: 'bold',
     color: COLORS.white,
-    marginBottom: SPACING.xs,
     textAlign: 'center',
+    marginBottom: SPACING.s,
   },
   subtitle: {
-    fontSize: FONTS.body1,
-    color: COLORS.gray300,
-    marginBottom: SPACING.xl,
+    fontSize: FONTS.body2,
+    color: COLORS.gray400,
     textAlign: 'center',
+    marginBottom: SPACING.xl,
   },
   imageContainer: {
-    marginBottom: SPACING.l,
+    alignSelf: 'center',
+    marginBottom: SPACING.xl,
   },
   profileImage: {
     width: 120,
@@ -313,15 +331,15 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.gray700,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.gray700,
+    borderColor: COLORS.gray500,
     borderStyle: 'dashed',
   },
   imagePlaceholderText: {
-    color: COLORS.accent,
+    color: COLORS.gray400,
     fontSize: FONTS.body2,
   },
   formContainer: {
@@ -330,12 +348,11 @@ const styles = StyleSheet.create({
   textArea: {
     height: 100,
     textAlignVertical: 'top',
-    paddingTop: SPACING.s,
   },
   label: {
     fontSize: FONTS.body2,
     color: COLORS.white,
-    marginBottom: SPACING.xs,
+    marginBottom: SPACING.s,
   },
   interestsContainer: {
     flexDirection: 'row',
@@ -343,38 +360,39 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.m,
   },
   interestTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: COLORS.primary,
-    borderRadius: 20,
     paddingHorizontal: SPACING.m,
     paddingVertical: SPACING.xs,
-    margin: SPACING.xs,
+    borderRadius: 20,
+    marginRight: SPACING.s,
+    marginBottom: SPACING.s,
   },
   interestText: {
     color: COLORS.white,
-    marginRight: SPACING.xs,
-  },
-  removeIcon: {
-    color: COLORS.white,
-    fontSize: FONTS.h3,
-    marginTop: -2,
+    fontSize: FONTS.body2,
   },
   addInterestContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: SPACING.l,
   },
-  interestInput: {
+  addInterestInput: {
     flex: 1,
     marginRight: SPACING.s,
-    marginBottom: 0,
   },
-  addButton: {
-    width: 80,
+  addInterestButton: {
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.m,
+    borderRadius: 8,
   },
-  button: {
-    marginTop: SPACING.m,
+  addInterestButtonText: {
+    color: COLORS.white,
+    fontSize: FONTS.body2,
+    fontWeight: 'bold',
+  },
+  saveButton: {
+    marginTop: SPACING.l,
   },
 });
 

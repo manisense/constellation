@@ -1,35 +1,47 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ActivityIndicator
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
-import { db, auth, signOut } from '../services/firebase';
-import { deleteUser } from 'firebase/auth';
-import { doc, deleteDoc } from 'firebase/firestore';
+import { signOut, supabase } from '../services/supabase';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
+import { useAuth } from '../hooks/useAuth';
 
 type SettingsScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 };
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+
   const handleSignOut = async () => {
     try {
-      await signOut(auth);
+      setLoading(true);
+      const { error } = await signOut();
+      if (error) throw error;
+      
       navigation.reset({
         index: 0,
         routes: [{ name: 'Welcome' }],
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      console.error('Sign out error:', error);
+      Alert.alert(
+        'Sign Out Error', 
+        'Failed to sign out. Please try again. If the problem persists, restart the app.'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -47,22 +59,42 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const user = auth.currentUser;
-              if (user) {
-                // Delete user data from Firestore
-                await deleteDoc(doc(db, 'users', user.uid));
-                
-                // Delete user account
-                await deleteUser(user);
-                
-                // Navigate to welcome screen
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Welcome' }],
-                });
+              setLoading(true);
+              if (!user) {
+                throw new Error('No user is currently signed in');
               }
+
+              // Delete user data from Supabase profiles table
+              const { error: profileError } = await supabase
+                .from('profiles')
+                .delete()
+                .eq('id', user.id);
+                
+              if (profileError) {
+                console.error('Error deleting user profile:', profileError);
+                // Continue with account deletion even if profile deletion fails
+              }
+
+              // Delete the user account
+              const { error } = await supabase.auth.admin.deleteUser(user.id);
+              if (error) throw error;
+              
+              // Navigate to welcome screen
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Welcome' }],
+              });
             } catch (error: any) {
-              Alert.alert('Error', error.message);
+              console.error('Account deletion error:', error);
+              
+              let errorMessage = 'Failed to delete account. Please try again.';
+              if (error.message && error.message.includes('recent login')) {
+                errorMessage = 'For security reasons, please sign out and sign in again before deleting your account.';
+              }
+              
+              Alert.alert('Error', errorMessage);
+            } finally {
+              setLoading(false);
             }
           },
         },
@@ -72,6 +104,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   return (
     <Screen>
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      )}
+      
       <View style={styles.container}>
         <Text style={styles.title}>Settings</Text>
 
@@ -174,6 +212,13 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.l,
   },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
   title: {
     fontSize: FONTS.h2,
     fontWeight: 'bold',
@@ -215,9 +260,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: COLORS.primary,
     padding: SPACING.m,
-    borderRadius: SIZES.borderRadius,
-    alignItems: 'center',
+    borderRadius: 8,
     justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: SPACING.m,
   },
   buttonIcon: {
@@ -230,10 +275,13 @@ const styles = StyleSheet.create({
   },
   deleteAccountButton: {
     flexDirection: 'row',
+    backgroundColor: 'transparent',
     padding: SPACING.m,
-    borderRadius: SIZES.borderRadius,
-    alignItems: 'center',
+    borderRadius: 8,
     justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.error,
   },
   deleteAccountText: {
     color: COLORS.error,

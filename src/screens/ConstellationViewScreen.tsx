@@ -11,15 +11,16 @@ import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
-import { db } from '../services/firebase';
-import { doc, getDoc, collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { supabase } from '../utils/supabase';
 import { StarType } from '../types';
+import { useAuth } from '../hooks/useAuth';
 
 type ConstellationViewScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ConstellationView'>;
 };
 
 const ConstellationViewScreen: React.FC<ConstellationViewScreenProps> = () => {
+  const { user } = useAuth();
   const [constellationName, setConstellationName] = useState('');
   const [bondingStrength, setBondingStrength] = useState(0);
   const [userStarType, setUserStarType] = useState<StarType | null>(null);
@@ -29,47 +30,76 @@ const ConstellationViewScreen: React.FC<ConstellationViewScreenProps> = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadConstellationData();
-  }, []);
+    if (user) {
+      loadConstellationData();
+    }
+  }, [user]);
 
   const loadConstellationData = async () => {
+    if (!user) return;
+    
     try {
-      // Get the current user ID from local storage
-      // In a real app, we would use auth.currentUser.uid
-      // For our demo, we'll use the latest user created
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, orderBy('createdAt', 'desc'), limit(1));
-      const querySnapshot = await getDocs(q);
+      // Get user profile from Supabase
+      const { data: userData, error: userError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
       
-      if (!querySnapshot.empty) {
-        const userData = querySnapshot.docs[0].data();
-        const userId = querySnapshot.docs[0].id;
-        
-        setUserName(userData.name || 'You');
-        setUserStarType(userData.starType);
+      if (userError) throw userError;
+      
+      setUserName(userData.name || 'You');
+      setUserStarType(userData.starType);
 
-        if (userData.constellationId) {
-          // Get constellation data
-          const constellationDoc = await getDoc(doc(db, 'constellations', userData.constellationId));
-          if (constellationDoc.exists()) {
-            const constellationData = constellationDoc.data();
-            setConstellationName(constellationData.name || 'Your Constellation');
-            setBondingStrength(constellationData.bondingStrength || 0);
+      // Get user's constellation membership
+      const { data: memberData, error: memberError } = await supabase
+        .from('constellation_members')
+        .select('constellation_id')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (memberError) {
+        console.error('Error getting constellation membership:', memberError);
+        setLoading(false);
+        return;
+      }
+      
+      if (memberData && memberData.constellation_id) {
+        // Get constellation data
+        const { data: constellationData, error: constellationError } = await supabase
+          .from('constellations')
+          .select('*')
+          .eq('id', memberData.constellation_id)
+          .single();
+        
+        if (constellationError) throw constellationError;
+        
+        setConstellationName(constellationData.name || 'Your Constellation');
+        setBondingStrength(constellationData.bonding_strength || 0);
+        
+        // Find partner (other members of the constellation)
+        const { data: partners, error: partnersError } = await supabase
+          .from('constellation_members')
+          .select('user_id')
+          .eq('constellation_id', memberData.constellation_id)
+          .neq('user_id', user.id);
+        
+        if (partnersError) throw partnersError;
+        
+        if (partners && partners.length > 0) {
+          const partnerId = partners[0].user_id;
+          
+          // Get partner profile
+          const { data: partnerData, error: partnerError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', partnerId)
+            .single();
             
-            // Find partner
-            const partnerIds = constellationData.partnerIds || [];
-            const partnerId = partnerIds.find((id: string) => id !== userId);
-            
-            if (partnerId) {
-              // Get partner data
-              const partnerDoc = await getDoc(doc(db, 'users', partnerId));
-              if (partnerDoc.exists()) {
-                const partnerData = partnerDoc.data();
-                setPartnerName(partnerData.name || 'Partner');
-                setPartnerStarType(partnerData.starType);
-              }
-            }
-          }
+          if (partnerError) throw partnerError;
+          
+          setPartnerName(partnerData.name || 'Partner');
+          setPartnerStarType(partnerData.starType);
         }
       }
     } catch (error) {

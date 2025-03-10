@@ -89,7 +89,15 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
+  WaitingForPartner: {
+    inviteCode?: string;
+  };
   PhoneAuth: {
     constellationId?: string;
   };
+  // Tab navigator screens
+  HomeTab: undefined;
+  ChatTab: undefined;
+  ConstellationTab: undefined;
+  SettingsTab: undefined;
 }; 

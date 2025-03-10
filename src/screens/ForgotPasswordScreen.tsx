@@ -14,8 +14,7 @@ import { COLORS, FONTS, SPACING } from '../constants/theme';
 import Screen from '../components/Screen';
 import Input from '../components/Input';
 import Button from '../components/Button';
-import { auth } from '../services/firebase';
-import { sendPasswordResetEmail } from 'firebase/auth';
+import { supabase } from '../utils/supabase';
 
 type ForgotPasswordScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ForgotPassword'>;
@@ -34,7 +33,12 @@ const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({ navigation 
 
     setLoading(true);
     try {
-      await sendPasswordResetEmail(auth, email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: 'constellation://reset-password',
+      });
+      
+      if (error) throw error;
+      
       setResetSent(true);
     } catch (error: any) {
       console.error('Password reset error:', error);

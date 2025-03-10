@@ -16,12 +16,7 @@ import { COLORS, FONTS, SPACING } from '../constants/theme';
 import Screen from '../components/Screen';
 import Input from '../components/Input';
 import Button from '../components/Button';
-import { auth, db } from '../services/firebase';
-import { 
-  PhoneAuthProvider,
-  signInWithCredential,
-} from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../utils/supabase';
 
 type PhoneAuthScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'PhoneAuth'>;
@@ -59,7 +54,7 @@ const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ navigation, route }) 
       const formattedPhoneNumber = '+91' + phoneNumber;
       
       // For development/testing purposes only
-      // In a real app, you would use Firebase's phone auth with proper RecaptchaVerifier
+      // In a real app, you would use Supabase's phone auth
       // This is a simplified approach for development
       
       // Simulate verification ID for development
@@ -91,26 +86,54 @@ const PhoneAuthScreen: React.FC<PhoneAuthScreenProps> = ({ navigation, route }) 
     setLoading(true);
     try {
       // In development mode, we'll simulate a successful verification
-      // In production, you would use PhoneAuthProvider.credential and signInWithCredential
+      // In production, you would use Supabase's phone auth
       
       // Generate a random user ID for development
       const mockUserId = 'dev-user-' + Date.now();
       
-      // Create or update user document in Firestore
-      await setDoc(doc(db, 'users', mockUserId), {
-        id: mockUserId,
-        phoneNumber: '+91' + phoneNumber,
-        createdAt: serverTimestamp(),
-        constellationId: constellationId || null,
-        // Add other default fields
-        name: '',
-        email: '',
-        photoURL: '',
-        about: '',
-        interests: [],
-        starName: '',
-        starType: null,
-      }, { merge: true });
+      // Create a temporary user in Supabase
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: `${mockUserId}@example.com`,
+        password: 'TemporaryPassword123!',
+      });
+      
+      if (authError) throw authError;
+      
+      const userId = authData.user?.id;
+      
+      if (!userId) {
+        throw new Error('Failed to create user');
+      }
+      
+      // Create user profile in Supabase
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          phone_number: '+91' + phoneNumber,
+          name: '',
+          email: '',
+          photo_url: '',
+          about: '',
+          interests: [],
+          star_name: '',
+          star_type: null,
+        });
+      
+      if (profileError) throw profileError;
+      
+      // If joining a constellation, create membership
+      if (constellationId) {
+        const { error: membershipError } = await supabase
+          .from('constellation_members')
+          .insert({
+            user_id: userId,
+            constellation_id: constellationId,
+            joined_at: new Date().toISOString()
+          });
+        
+        if (membershipError) throw membershipError;
+      }
       
       // Navigate based on whether user is joining or creating
       if (constellationId) {

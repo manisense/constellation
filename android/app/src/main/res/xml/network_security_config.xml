@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <!-- Add your development machine's IP address here -->
+        <domain includeSubdomains="true">11.4.0.105</domain>
+        <!-- Add Expo domains -->
+        <domain includeSubdomains="true">exp.direct</domain>
+        <domain includeSubdomains="true">expo.io</domain>
+        <domain includeSubdomains="true">expo.dev</domain>
+        <domain includeSubdomains="true">exp.host</domain>
+    </domain-config>
+</network-security-config> 
