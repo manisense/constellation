@@ -75,9 +75,12 @@ const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({ navig
         // Refresh user status to update the context
         await refreshUserStatus();
         
-        // Navigate to the Quiz screen
-        console.log('Navigating to Quiz screen');
-        navigation.navigate('Quiz');
+        // Navigate to the Home screen instead of Quiz
+        console.log('Navigating to Home screen');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Home' }],
+        });
       } else {
         console.error("Unsuccessful response:", data);
         throw new Error(data?.message || 'Failed to join constellation');

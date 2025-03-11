@@ -189,9 +189,9 @@ const AppNavigator = () => {
       console.log("User waiting for partner, showing OnboardingStack");
       return <OnboardingStack />;
     case 'quiz_needed':
-      // Both users joined but quiz not completed
-      console.log("Quiz needed, showing QuizStack");
-      return <QuizStack />;
+      // Both users joined but we're skipping the quiz now
+      console.log("Quiz needed, but skipping to AppStack since star types are auto-assigned");
+      return <AppStack />;
     case 'complete':
       // Constellation is complete, show main app
       console.log("Constellation complete, showing AppStack");
