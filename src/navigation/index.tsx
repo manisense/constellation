@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { RootStackParamList } from '../types/index';
@@ -156,16 +156,34 @@ const AppStack = () => {
       <Stack.Screen name="Chat" component={ChatScreen} />
       <Stack.Screen name="ConstellationView" component={ConstellationViewScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen name="Quiz" component={QuizScreen} />
+      <Stack.Screen name="StarReveal" component={StarRevealScreen} />
     </Stack.Navigator>
   );
 };
 
 // Main Navigation Stack
 const AppNavigator = () => {
-  const { user, userStatus, loading } = useAuth();
+  const { user, userStatus, loading, refreshUserStatus } = useAuth();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // If still loading, show nothing yet
-  if (loading) {
+  // Effect to handle null userStatus when user is authenticated
+  useEffect(() => {
+    const handleNullStatus = async () => {
+      if (user && userStatus === null && !isRefreshing) {
+        console.log("User is authenticated but status is null, refreshing status...");
+        setIsRefreshing(true);
+        await refreshUserStatus();
+        setIsRefreshing(false);
+      }
+    };
+    
+    handleNullStatus();
+  }, [user, userStatus, isRefreshing]);
+  
+  // If still loading or refreshing, show loading indicator
+  if (loading || isRefreshing) {
     return null;
   }
   
@@ -196,6 +214,10 @@ const AppNavigator = () => {
       // Constellation is complete, show main app
       console.log("Constellation complete, showing AppStack");
       return <AppStack />;
+    case null:
+      // If status is still null after refresh attempt, default to OnboardingStack
+      console.log("Status is null, defaulting to OnboardingStack");
+      return <OnboardingStack />;
     default:
       // Default to onboarding if status is not yet determined
       console.log("Default case, showing OnboardingStack");

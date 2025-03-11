@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
@@ -14,22 +15,21 @@ import Screen from '../components/Screen';
 import Button from '../components/Button';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../provider/AuthProvider';
+import { signOut } from '../utils/supabase';
 
 type OnboardingScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 };
 
 const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, refreshUserStatus } = useAuth();
 
   // Check if user is authenticated
   useEffect(() => {
     if (!user) {
       console.log("OnboardingScreen: No authenticated user, redirecting to Welcome");
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
+      // Use navigate instead of reset to avoid navigation errors
+      navigation.navigate('Welcome');
     } else {
       console.log("OnboardingScreen: User is authenticated");
     }
@@ -38,10 +38,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
   const handleCreateConstellation = () => {
     if (!user) {
       console.log("Cannot create constellation: No authenticated user");
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
+      navigation.navigate('Welcome');
       return;
     }
     navigation.navigate('CreateConstellation');
@@ -50,18 +47,53 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
   const handleJoinConstellation = () => {
     if (!user) {
       console.log("Cannot join constellation: No authenticated user");
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
+      navigation.navigate('Welcome');
       return;
     }
     navigation.navigate('JoinConstellation');
   };
 
+  const handleSignOut = async () => {
+    Alert.alert(
+      "Sign Out",
+      "Are you sure you want to sign out?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Sign Out",
+          onPress: async () => {
+            try {
+              console.log("Signing out...");
+              const { error } = await signOut();
+              if (error) {
+                console.error("Error signing out:", error);
+                Alert.alert("Error", "Failed to sign out. Please try again.");
+              } else {
+                console.log("Successfully signed out");
+                // Navigation will be handled by the AuthProvider
+              }
+            } catch (error) {
+              console.error("Exception during sign out:", error);
+              Alert.alert("Error", "An unexpected error occurred. Please try again.");
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
-    <Screen>
-      <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+    <Screen 
+      showHeader={true} 
+      headerTitle="Constellation"
+      showProfile={true}
+      showNotification={true}
+      scrollable={true}
+    >
+      <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Welcome to Constellation</Text>
           <Text style={styles.subtitle}>
@@ -138,7 +170,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
             style={styles.joinButton}
           />
         </View>
-      </ScrollView>
+      </View>
     </Screen>
   );
 };
@@ -147,14 +179,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: {
-    padding: SPACING.l,
-    paddingBottom: SPACING.xxl,
-  },
   header: {
     alignItems: 'center',
     marginTop: SPACING.xl,
     marginBottom: SPACING.xl,
+    position: 'relative',
   },
   title: {
     fontSize: FONTS.h1,

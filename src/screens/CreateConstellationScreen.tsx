@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
 import { createConstellation } from '../utils/supabase';
 import { useAuth } from '../provider/AuthProvider';
+import Button from '../components/Button';
 
 type CreateConstellationScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateConstellation'>;
@@ -105,71 +106,54 @@ const CreateConstellationScreen: React.FC<CreateConstellationScreenProps> = ({ n
   };
 
   return (
-    <Screen>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-      >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {loading && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color={COLORS.primary} />
-            </View>
-          )}
-          
-          <View style={styles.header}>
-            <TouchableOpacity 
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
-            </TouchableOpacity>
+    <Screen 
+      showHeader={true} 
+      headerTitle="Create Constellation"
+      keyboardAvoiding={true}
+      scrollable={true}
+    >
+      <View style={styles.container}>
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
           </View>
+        )}
+        
+        <View style={styles.header}>
+          <Text style={styles.title}>Create Your Constellation</Text>
+          <Text style={styles.subtitle}>
+            Give your constellation a meaningful name
+          </Text>
+        </View>
+        
+        <View style={styles.formContainer}>
+          <Text style={styles.label}>Constellation Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter a name for your constellation"
+            placeholderTextColor={COLORS.gray500}
+            value={constellationName}
+            onChangeText={setConstellationName}
+            maxLength={30}
+          />
           
-          <View style={styles.content}>
-            <Image 
-              source={require('../assets/images/constellation.png')} 
-              style={styles.image}
-              resizeMode="contain"
-            />
-            
-            <Text style={styles.title}>Create Your Constellation</Text>
-            <Text style={styles.subtitle}>
-              Give your relationship a unique name that represents your bond.
-              This will be the name of your constellation in the night sky.
-            </Text>
-            
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Constellation Name"
-                placeholderTextColor={COLORS.gray500}
-                value={constellationName}
-                onChangeText={setConstellationName}
-                maxLength={30}
-              />
-            </View>
-            
-            <TouchableOpacity
-              style={styles.createButton}
-              onPress={handleCreateConstellation}
-              disabled={loading || !constellationName.trim()}
-            >
-              <Text style={styles.createButtonText}>Create Constellation</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.joinButton}
-              onPress={() => navigation.navigate('JoinConstellation')}
-            >
-              <Text style={styles.joinButtonText}>I Have an Invite Code</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <Button
+            title="Create Constellation"
+            onPress={handleCreateConstellation}
+            style={styles.button}
+            loading={loading}
+          />
+        </View>
+        
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </Screen>
   );
 };
@@ -177,10 +161,6 @@ const CreateConstellationScreen: React.FC<CreateConstellationScreenProps> = ({ n
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: SPACING.l,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -192,19 +172,6 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: SPACING.l,
-  },
-  backButton: {
-    padding: SPACING.s,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  image: {
-    width: 200,
-    height: 200,
     marginBottom: SPACING.l,
   },
   title: {
@@ -220,22 +187,28 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.l,
     textAlign: 'center',
   },
-  inputContainer: {
-    width: '100%',
-    borderWidth: 1,
-    borderColor: COLORS.gray300,
-    borderRadius: 8,
-    marginBottom: SPACING.l,
-    paddingHorizontal: SPACING.m,
-    backgroundColor: COLORS.white,
+  formContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  label: {
+    fontSize: FONTS.body1,
+    color: COLORS.gray700,
+    marginBottom: SPACING.s,
   },
   input: {
     height: 50,
     color: COLORS.gray900,
     fontSize: FONTS.body1,
     textAlign: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.gray300,
+    borderRadius: 8,
+    paddingHorizontal: SPACING.m,
+    backgroundColor: COLORS.white,
   },
-  createButton: {
+  button: {
     backgroundColor: COLORS.primary,
     borderRadius: 8,
     height: 50,
@@ -244,21 +217,16 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: SPACING.m,
   },
-  createButtonText: {
-    color: COLORS.white,
-    fontSize: FONTS.body1,
-    fontWeight: 'bold',
-  },
-  joinButton: {
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: 8,
-    height: 50,
-    justifyContent: 'center',
+  footer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    width: '100%',
+    justifyContent: 'center',
+    marginTop: SPACING.l,
   },
-  joinButtonText: {
+  backButton: {
+    padding: SPACING.s,
+  },
+  backButtonText: {
     color: COLORS.primary,
     fontSize: FONTS.body1,
     fontWeight: 'bold',

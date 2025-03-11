@@ -363,7 +363,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   if (loading) {
     return (
-      <Screen>
+      <Screen showHeader={true} headerTitle="Home">
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
@@ -372,7 +372,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }
 
   return (
-    <Screen>
+    <Screen showHeader={true} headerTitle="Home">
       <ScrollView style={styles.container}>
         {error && (
           <View style={styles.errorContainer}>

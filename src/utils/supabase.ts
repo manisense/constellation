@@ -217,10 +217,18 @@ export const signOut = async () => {
 // Constellation functions
 export const getUserConstellationStatus = async () => {
   try {
+    console.log("Calling get_user_constellation_status RPC function");
     const { data, error } = await supabase.rpc('get_user_constellation_status');
-    if (error) throw error;
+    
+    if (error) {
+      console.error("Error in getUserConstellationStatus RPC call:", error.message);
+      throw error;
+    }
+    
+    console.log("getUserConstellationStatus response:", data);
     return { data, error: null };
-  } catch (error) {
+  } catch (error: any) {
+    console.error("Exception in getUserConstellationStatus:", error.message || error);
     return { data: null, error };
   }
 };

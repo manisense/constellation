@@ -396,7 +396,7 @@ const StarRevealScreen: React.FC<StarRevealScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <Screen>
+    <Screen showHeader={true} headerTitle="Star Reveal">
       <View style={styles.container}>
         <Text style={styles.title}>Your Star Type</Text>
         

@@ -118,7 +118,7 @@ const ConstellationViewScreen: React.FC<ConstellationViewScreenProps> = () => {
   };
 
   return (
-    <Screen>
+    <Screen showHeader={true} headerTitle="Constellation">
       <ScrollView style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>{constellationName}</Text>

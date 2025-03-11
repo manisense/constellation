@@ -16,7 +16,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
       source={require('../assets/images/night-sky.png')}
       style={styles.backgroundImage}
     >
-      <Screen>
+      <Screen showHeader={true} showLogo={true}>
         <View style={styles.container}>
           <View style={styles.logoContainer}>
             <Image

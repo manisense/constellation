@@ -8,13 +8,15 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
 import Screen from '../components/Screen';
 import { supabase } from '../utils/supabase';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../provider/AuthProvider';
+import { Ionicons } from '@expo/vector-icons';
 
 type ChatScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
@@ -53,6 +55,7 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
     if (!user) return;
     
     try {
+      console.log("Loading user data for chat...");
       // Get user's constellation membership
       const { data: memberData, error: memberError } = await supabase
         .from('constellation_members')
@@ -67,6 +70,7 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
       }
       
       if (memberData && memberData.constellation_id) {
+        console.log("Found constellation ID:", memberData.constellation_id);
         setConstellationId(memberData.constellation_id);
         
         // Get initial messages
@@ -79,15 +83,21 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
             created_at
           `)
           .eq('constellation_id', memberData.constellation_id)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false })
+          .limit(50);
         
-        if (messageError) throw messageError;
+        if (messageError) {
+          console.error('Error fetching messages:', messageError);
+          throw messageError;
+        }
         
         if (messageData) {
+          console.log(`Loaded ${messageData.length} messages`);
           setMessages(messageData.reverse());
         }
         
         // Subscribe to new messages
+        console.log("Setting up realtime subscription for messages...");
         const newSubscription = supabase
           .channel(`messages:constellation_id=eq.${memberData.constellation_id}`)
           .on('postgres_changes', { 
@@ -96,6 +106,7 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
             table: 'messages',
             filter: `constellation_id=eq.${memberData.constellation_id}`
           }, (payload) => {
+            console.log("Received new message:", payload.new);
             // Add new message to the list
             setMessages(prevMessages => [...prevMessages, payload.new as Message]);
           })
@@ -110,10 +121,14 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
           .eq('constellation_id', memberData.constellation_id)
           .neq('user_id', user.id);
         
-        if (partnersError) throw partnersError;
+        if (partnersError) {
+          console.error('Error fetching partner info:', partnersError);
+          throw partnersError;
+        }
         
         if (partners && partners.length > 0) {
           const partnerId = partners[0].user_id;
+          console.log("Found partner ID:", partnerId);
           
           // Get partner profile
           const { data: partnerProfile, error: profileError } = await supabase
@@ -123,9 +138,16 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
             .single();
             
           if (!profileError && partnerProfile) {
+            console.log("Partner name:", partnerProfile.name);
             setPartnerName(partnerProfile.name || 'Partner');
+          } else {
+            console.error('Error fetching partner profile:', profileError);
           }
+        } else {
+          console.log("No partner found in constellation");
         }
+      } else {
+        console.log("No constellation found for user");
       }
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -138,16 +160,23 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
     if (!newMessage.trim() || !constellationId || !user) return;
 
     try {
+      console.log("Sending message:", newMessage);
       // Add message to Supabase
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .insert([{
           constellation_id: constellationId,
           user_id: user.id,
           content: newMessage,
-        }]);
+        }])
+        .select();
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error sending message:', error);
+        throw error;
+      }
+      
+      console.log("Message sent successfully:", data);
       
       // Clear input
       setNewMessage('');
@@ -182,37 +211,60 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
   };
 
   return (
-    <Screen>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        <FlatList
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messageList}
-        />
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            value={newMessage}
-            onChangeText={setNewMessage}
-            placeholder="Type a message..."
-            placeholderTextColor={COLORS.gray500}
-            multiline
-          />
-          <TouchableOpacity
-            style={styles.sendButton}
-            onPress={handleSend}
-            disabled={!newMessage.trim()}
-          >
-            <Text style={styles.sendButtonText}>Send</Text>
-          </TouchableOpacity>
+    <Screen showHeader={true} headerTitle={`Chat with ${partnerName}`}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading messages...</Text>
         </View>
-      </KeyboardAvoidingView>
+      ) : (
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        >
+          {messages.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="chatbubble-outline" size={64} color={COLORS.gray500} />
+              <Text style={styles.emptyText}>No messages yet</Text>
+              <Text style={styles.emptySubtext}>Start the conversation with your partner!</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={messages}
+              renderItem={renderMessage}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.messageList}
+              inverted={false}
+            />
+          )}
+
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              value={newMessage}
+              onChangeText={setNewMessage}
+              placeholder="Type a message..."
+              placeholderTextColor={COLORS.gray500}
+              multiline
+            />
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                !newMessage.trim() && styles.sendButtonDisabled
+              ]}
+              onPress={handleSend}
+              disabled={!newMessage.trim()}
+            >
+              <Ionicons 
+                name="send" 
+                size={24} 
+                color={!newMessage.trim() ? COLORS.gray500 : COLORS.white} 
+              />
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      )}
     </Screen>
   );
 };
@@ -221,8 +273,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: SPACING.m,
+    color: COLORS.gray300,
+    fontSize: FONTS.body1,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  emptyText: {
+    marginTop: SPACING.m,
+    color: COLORS.white,
+    fontSize: FONTS.h3,
+    fontWeight: 'bold',
+  },
+  emptySubtext: {
+    marginTop: SPACING.s,
+    color: COLORS.gray300,
+    fontSize: FONTS.body1,
+    textAlign: 'center',
+  },
   messageList: {
     padding: SPACING.m,
+    flexGrow: 1,
   },
   messageContainer: {
     maxWidth: '80%',
@@ -236,7 +317,7 @@ const styles = StyleSheet.create({
   },
   otherUserMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.gray800,
   },
   messageText: {
     color: COLORS.white,
@@ -251,13 +332,13 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     padding: SPACING.m,
-    backgroundColor: COLORS.background,
     borderTopWidth: 1,
     borderTopColor: COLORS.gray800,
+    backgroundColor: COLORS.background,
   },
   input: {
     flex: 1,
-    backgroundColor: COLORS.input,
+    backgroundColor: COLORS.gray800,
     borderRadius: 20,
     paddingHorizontal: SPACING.m,
     paddingVertical: SPACING.s,
@@ -266,12 +347,19 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   sendButton: {
-    marginLeft: SPACING.m,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: SPACING.s,
+  },
+  sendButtonDisabled: {
+    backgroundColor: COLORS.gray700,
   },
   sendButtonText: {
-    color: COLORS.accent,
-    fontSize: FONTS.body1,
+    color: COLORS.white,
     fontWeight: 'bold',
   },
 });

@@ -209,7 +209,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <Screen scrollable keyboardAvoiding>
+    <Screen showHeader={true} headerTitle="Profile" scrollable keyboardAvoiding>
       <View style={styles.container}>
         <Text style={styles.title}>Create Your Profile</Text>
         <Text style={styles.subtitle}>

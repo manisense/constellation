@@ -4,9 +4,8 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  ViewStyle,
-  ScrollView,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
 } from 'react-native';
 import { COLORS } from '../constants/theme';
@@ -14,63 +13,46 @@ import Header from './Header';
 
 interface ScreenProps {
   children: React.ReactNode;
-  style?: ViewStyle;
-  header?: {
-    title: string;
-    leftIcon?: React.ReactNode;
-    rightIcon?: React.ReactNode;
-    onLeftPress?: () => void;
-    onRightPress?: () => void;
-    showBorder?: boolean;
-  };
+  showHeader?: boolean;
+  headerTitle?: string;
+  showLogo?: boolean;
+  showProfile?: boolean;
+  showNotification?: boolean;
   scrollable?: boolean;
   keyboardAvoiding?: boolean;
-  statusBarColor?: string;
-  statusBarStyle?: 'light-content' | 'dark-content';
+  style?: any;
 }
 
 const Screen: React.FC<ScreenProps> = ({
   children,
-  style,
-  header,
+  showHeader = true,
+  headerTitle,
+  showLogo = true,
+  showProfile = true,
+  showNotification = true,
   scrollable = false,
   keyboardAvoiding = false,
-  statusBarColor = COLORS.background,
-  statusBarStyle = 'light-content',
+  style,
 }) => {
   const renderContent = () => {
-    const content = (
-      <View style={[styles.container, style]}>
-        {header && (
-          <Header
-            title={header.title}
-            leftIcon={header.leftIcon}
-            rightIcon={header.rightIcon}
-            onLeftPress={header.onLeftPress}
-            onRightPress={header.onRightPress}
-            showBorder={header.showBorder}
-          />
-        )}
-        {scrollable ? (
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollViewContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {children}
-          </ScrollView>
-        ) : (
-          children
-        )}
-      </View>
-    );
+    let content = <View style={[styles.contentContainer, style]}>{children}</View>;
+
+    if (scrollable) {
+      content = (
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, style]}
+        >
+          {children}
+        </ScrollView>
+      );
+    }
 
     if (keyboardAvoiding) {
       return (
         <KeyboardAvoidingView
           style={styles.keyboardAvoidingView}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           {content}
         </KeyboardAvoidingView>
@@ -81,29 +63,49 @@ const Screen: React.FC<ScreenProps> = ({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.mainContainer}>
       <StatusBar
-        backgroundColor={statusBarColor}
-        barStyle={statusBarStyle}
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent={true}
       />
-      {renderContent()}
-    </SafeAreaView>
+      <SafeAreaView style={styles.safeAreaTop} />
+      {showHeader && (
+        <Header
+          title={headerTitle}
+          showLogo={showLogo}
+          showProfile={showProfile}
+          showNotification={showNotification}
+        />
+      )}
+      <SafeAreaView style={styles.safeAreaContent}>
+        {renderContent()}
+      </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
+  mainContainer: {
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  container: {
+  safeAreaTop: {
+    flex: 0,
+    backgroundColor: COLORS.gray900,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  safeAreaContent: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  contentContainer: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
   },
-  scrollViewContent: {
+  scrollContent: {
     flexGrow: 1,
   },
   keyboardAvoidingView: {

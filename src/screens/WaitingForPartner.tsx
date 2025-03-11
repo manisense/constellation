@@ -10,6 +10,7 @@ import {
   Easing,
   Platform,
   Clipboard,
+  Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -19,8 +20,8 @@ import Screen from '../components/Screen';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../utils/supabase';
+import { useAuth } from '../provider/AuthProvider';
+import { supabase, signOut } from '../utils/supabase';
 
 type WaitingForPartnerProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'WaitingForPartner'>;
@@ -150,17 +151,47 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
       console.error('Error sharing invite code:', error);
     }
   };
+  
+  const handleSignOut = async () => {
+    Alert.alert(
+      "Sign Out",
+      "Are you sure you want to sign out?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        {
+          text: "Sign Out",
+          onPress: async () => {
+            try {
+              console.log("Signing out...");
+              const { error } = await signOut();
+              if (error) {
+                console.error("Error signing out:", error);
+                Alert.alert("Error", "Failed to sign out. Please try again.");
+              } else {
+                console.log("Successfully signed out");
+                // Navigation will be handled by the AuthProvider
+              }
+            } catch (error) {
+              console.error("Exception during sign out:", error);
+              Alert.alert("Error", "An unexpected error occurred. Please try again.");
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
-    <Screen>
+    <Screen 
+      showHeader={true} 
+      headerTitle="Waiting for Partner"
+      showProfile={true}
+      showNotification={true}
+    >
       <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Waiting for Partner</Text>
-          <Text style={styles.subtitle}>
-            Share this invite code with your partner to connect your stars
-          </Text>
-        </View>
-
         <View style={styles.content}>
           <Animated.View
             style={[
@@ -170,15 +201,19 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
           >
             <Card style={styles.codeCard}>
               <Text style={styles.codeLabel}>Your Invite Code</Text>
-              <Text style={styles.code}>{inviteCode || 'Loading...'}</Text>
+              <Text style={styles.code}>{inviteCode || '------'}</Text>
               <View style={styles.codeActions}>
                 <TouchableOpacity
                   style={styles.codeAction}
                   onPress={handleCopyCode}
                 >
-                  <Ionicons name="copy-outline" size={20} color={COLORS.white} />
+                  <Ionicons
+                    name={copied ? "checkmark-circle" : "copy-outline"}
+                    size={20}
+                    color={copied ? COLORS.success : COLORS.white}
+                  />
                   <Text style={styles.codeActionText}>
-                    {copied ? 'Copied!' : 'Copy'}
+                    {copied ? "Copied!" : "Copy"}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -226,23 +261,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: SPACING.l,
     justifyContent: 'space-between',
-  },
-  header: {
-    marginTop: SPACING.xl,
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: FONTS.h1,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginBottom: SPACING.s,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: FONTS.body1,
-    color: COLORS.gray300,
-    textAlign: 'center',
-    marginBottom: SPACING.xl,
   },
   content: {
     flex: 1,

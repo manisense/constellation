@@ -44,13 +44,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [inviteCode, setInviteCode] = useState<string | null>(null);
 
   const refreshUserStatus = async () => {
-    if (!user) {
+    // Get the current user from session if not available in state
+    const currentUser = user || (await supabase.auth.getSession()).data.session?.user;
+    
+    if (!currentUser) {
       console.log("Cannot refresh status: No authenticated user");
       return;
     }
     
     try {
-      console.log("Refreshing user status for user ID:", user.id);
+      console.log("Refreshing user status for user ID:", currentUser.id);
       const { data, error } = await getUserConstellationStatus();
       
       if (error) {
@@ -114,7 +117,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             setInviteCode(null);
           } else {
             console.log("User verified in profiles table, checking constellation status");
-            await refreshUserStatus();
+            // Use the session user directly to avoid timing issues
+            const currentUser = data.session.user;
+            try {
+              console.log("Refreshing user status for user ID:", currentUser.id);
+              const { data: statusData, error: statusError } = await getUserConstellationStatus();
+              
+              if (statusError) {
+                console.error('Error getting user status:', statusError);
+              } else if (statusData) {
+                console.log("User status received:", statusData.status);
+                setUserStatus(statusData.status);
+                
+                if (statusData.status === 'waiting_for_partner' && statusData.constellation) {
+                  console.log("User is waiting for partner, invite code:", statusData.constellation.invite_code);
+                  setInviteCode(statusData.constellation.invite_code);
+                } else if (statusData.status === 'quiz_needed') {
+                  console.log("User needs to complete quiz");
+                  setInviteCode(null);
+                } else if (statusData.status === 'complete') {
+                  console.log("User's constellation is complete");
+                  setInviteCode(null);
+                } else if (statusData.status === 'no_constellation') {
+                  console.log("User has no constellation");
+                  setInviteCode(null);
+                }
+                
+                console.log("Updated user status to:", statusData.status);
+              }
+            } catch (error) {
+              console.error('Error refreshing user status:', error);
+            }
           }
         } else {
           console.log("No auth session found or invalid user");

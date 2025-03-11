@@ -49,7 +49,7 @@ const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({ navigation 
   };
 
   return (
-    <Screen>
+    <Screen showHeader={true} headerTitle="Reset Password" showLogo={true}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.container}

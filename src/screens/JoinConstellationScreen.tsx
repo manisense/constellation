@@ -19,6 +19,7 @@ import { joinConstellationWithCode } from '../utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
 import { useAuth } from '../provider/AuthProvider';
+import Button from '../components/Button';
 
 type JoinConstellationScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'JoinConstellation'>;
@@ -77,10 +78,7 @@ const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({ navig
         
         // Navigate to the Home screen instead of Quiz
         console.log('Navigating to Home screen');
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Home' }],
-        });
+        navigation.navigate('Home');
       } else {
         console.error("Unsuccessful response:", data);
         throw new Error(data?.message || 'Failed to join constellation');
@@ -106,71 +104,55 @@ const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({ navig
   };
 
   return (
-    <Screen>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-      >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {loading && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color={COLORS.primary} />
-            </View>
-          )}
-          
-          <View style={styles.header}>
-            <TouchableOpacity 
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
-            </TouchableOpacity>
+    <Screen 
+      showHeader={true} 
+      headerTitle="Join Constellation"
+      keyboardAvoiding={true}
+      scrollable={true}
+    >
+      <View style={styles.container}>
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
           </View>
+        )}
+        
+        <View style={styles.header}>
+          <Text style={styles.title}>Join a Constellation</Text>
+          <Text style={styles.subtitle}>
+            Enter the invite code shared by your partner
+          </Text>
+        </View>
+        
+        <View style={styles.formContainer}>
+          <Text style={styles.label}>Invite Code</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Enter 6-digit code"
+            placeholderTextColor={COLORS.gray500}
+            value={inviteCode}
+            onChangeText={setInviteCode}
+            autoCapitalize="characters"
+            maxLength={6}
+          />
           
-          <View style={styles.content}>
-            <Image 
-              source={require('../assets/images/constellation.png')} 
-              style={styles.image}
-              resizeMode="contain"
-            />
-            
-            <Text style={styles.title}>Join a Constellation</Text>
-            <Text style={styles.subtitle}>
-              Enter the invite code shared by your partner to join their constellation.
-            </Text>
-            
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter Invite Code"
-                placeholderTextColor={COLORS.gray500}
-                value={inviteCode}
-                onChangeText={setInviteCode}
-                autoCapitalize="characters"
-                maxLength={6}
-              />
-            </View>
-            
-            <TouchableOpacity
-              style={styles.joinButton}
-              onPress={handleJoinConstellation}
-              disabled={loading || !inviteCode.trim()}
-            >
-              <Text style={styles.joinButtonText}>Join Constellation</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.createButton}
-              onPress={() => navigation.navigate('CreateConstellation')}
-            >
-              <Text style={styles.createButtonText}>Create My Own Constellation</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <Button
+            title="Join Constellation"
+            onPress={handleJoinConstellation}
+            style={styles.button}
+            loading={loading}
+          />
+        </View>
+        
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </Screen>
   );
 };
@@ -261,6 +243,35 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   createButtonText: {
+    color: COLORS.primary,
+    fontSize: FONTS.body1,
+    fontWeight: 'bold',
+  },
+  formContainer: {
+    width: '100%',
+    padding: SPACING.l,
+  },
+  label: {
+    fontSize: FONTS.body1,
+    fontWeight: 'bold',
+    color: COLORS.gray900,
+    marginBottom: SPACING.s,
+  },
+  button: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: SPACING.m,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: SPACING.m,
+  },
+  backButtonText: {
     color: COLORS.primary,
     fontSize: FONTS.body1,
     fontWeight: 'bold',

@@ -6,62 +6,79 @@ import {
   TouchableOpacity,
   ViewStyle,
   TextStyle,
+  Image,
+  Platform,
+  StatusBar,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { RootStackParamList } from '../types';
+import Logo from './Logo';
 
 interface HeaderProps {
-  title: string;
-  leftIcon?: React.ReactNode;
-  rightIcon?: React.ReactNode;
-  onLeftPress?: () => void;
-  onRightPress?: () => void;
-  containerStyle?: ViewStyle;
-  titleStyle?: TextStyle;
-  showBorder?: boolean;
+  title?: string;
+  showLogo?: boolean;
+  showProfile?: boolean;
+  showNotification?: boolean;
 }
 
 const Header: React.FC<HeaderProps> = ({
   title,
-  leftIcon,
-  rightIcon,
-  onLeftPress,
-  onRightPress,
-  containerStyle,
-  titleStyle,
-  showBorder = true,
+  showLogo = true,
+  showProfile = true,
+  showNotification = true,
 }) => {
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+
+  const handleProfilePress = () => {
+    // Try to navigate to Profile, but catch any errors
+    try {
+      // @ts-ignore - We're handling the error if this fails
+      navigation.navigate('Profile');
+    } catch (error) {
+      console.log('Cannot navigate to Profile from current stack');
+      // If we're in a nested navigator, try to navigate to the root navigator first
+      try {
+        // @ts-ignore - We're handling the error if this fails
+        navigation.navigate('Home', { screen: 'Profile' });
+      } catch (nestedError) {
+        console.log('Cannot navigate to Profile from any stack');
+      }
+    }
+  };
+
+  const handleNotificationPress = () => {
+    // Placeholder for notification functionality
+    console.log('Notification pressed');
+  };
+
   return (
-    <View
-      style={[
-        styles.container,
-        showBorder && styles.borderBottom,
-        containerStyle,
-      ]}
-    >
+    <View style={styles.container}>
       <View style={styles.leftContainer}>
-        {leftIcon && (
-          <TouchableOpacity
-            style={styles.iconContainer}
-            onPress={onLeftPress}
-            disabled={!onLeftPress}
-          >
-            {leftIcon}
-          </TouchableOpacity>
+        {showLogo && (
+          <Logo size={32} />
         )}
+        {title && <Text style={styles.title}>{title}</Text>}
       </View>
 
-      <Text style={[styles.title, titleStyle]} numberOfLines={1}>
-        {title}
-      </Text>
-
       <View style={styles.rightContainer}>
-        {rightIcon && (
+        {showNotification && (
           <TouchableOpacity
-            style={styles.iconContainer}
-            onPress={onRightPress}
-            disabled={!onRightPress}
+            style={styles.iconButton}
+            onPress={handleNotificationPress}
+            accessibilityLabel="Notifications"
           >
-            {rightIcon}
+            <Ionicons name="notifications-outline" size={24} color={COLORS.white} />
+          </TouchableOpacity>
+        )}
+        {showProfile && (
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={handleProfilePress}
+            accessibilityLabel="Profile"
+          >
+            <Ionicons name="person-outline" size={24} color={COLORS.white} />
           </TouchableOpacity>
         )}
       </View>
@@ -72,33 +89,40 @@ const Header: React.FC<HeaderProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    height: 56,
+    alignItems: 'center',
     paddingHorizontal: SPACING.m,
-    backgroundColor: COLORS.background,
-  },
-  borderBottom: {
+    paddingVertical: SPACING.s,
+    backgroundColor: COLORS.gray900,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.gray800,
+    height: 60,
+    width: '100%',
+    paddingTop: Platform.OS === 'android' ? SPACING.m : SPACING.s,
+    zIndex: 1000,
   },
   leftContainer: {
-    width: 40,
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   rightContainer: {
-    width: 40,
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  iconContainer: {
-    padding: SPACING.xs,
+  logo: {
+    width: 32,
+    height: 32,
+    marginRight: SPACING.s,
   },
   title: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: FONTS.h3,
+    fontSize: FONTS.h4,
     fontWeight: 'bold',
     color: COLORS.white,
+    marginLeft: SPACING.s,
+  },
+  iconButton: {
+    padding: SPACING.xs,
+    marginLeft: SPACING.s,
   },
 });
 

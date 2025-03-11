@@ -463,7 +463,7 @@ const QuizScreen: React.FC<QuizScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <Screen>
+    <Screen showHeader={true} headerTitle="Personality Quiz">
       <View style={styles.container}>
         <Text style={styles.title}>Personality Quiz</Text>
         <Text style={styles.subtitle}>
