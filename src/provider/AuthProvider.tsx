@@ -65,7 +65,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (data.status === 'waiting_for_partner' && data.constellation) {
           console.log("User is waiting for partner, invite code:", data.constellation.invite_code);
           setInviteCode(data.constellation.invite_code);
+        } else if (data.status === 'quiz_needed') {
+          console.log("User needs to complete quiz");
+          setInviteCode(null);
+        } else if (data.status === 'complete') {
+          console.log("User's constellation is complete");
+          setInviteCode(null);
+        } else if (data.status === 'no_constellation') {
+          console.log("User has no constellation");
+          setInviteCode(null);
         }
+        
+        console.log("Updated user status to:", data.status);
       }
     } catch (error) {
       console.error('Error refreshing user status:', error);
@@ -124,9 +135,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               setSession(newSession);
               setUser(newSession.user);
               
-              // Check user status but don't create profile here
-              // This allows the user to proceed to create/join constellation
-              await refreshUserStatus();
+              // Check user's constellation status
+              try {
+                console.log('Checking user constellation status after sign in');
+                const { data: statusData, error: statusError } = await getUserConstellationStatus();
+                
+                if (statusError) {
+                  console.error('Error getting user constellation status:', statusError);
+                } else if (statusData) {
+                  console.log('User constellation status:', statusData.status);
+                  setUserStatus(statusData.status);
+                  
+                  // If user is waiting for partner, set the invite code
+                  if (statusData.status === 'waiting_for_partner' && statusData.constellation) {
+                    console.log('User is waiting for partner, invite code:', statusData.constellation.invite_code);
+                    setInviteCode(statusData.constellation.invite_code);
+                  }
+                }
+              } catch (error) {
+                console.error('Error in constellation status check:', error);
+              }
             } else if (event === 'SIGNED_OUT') {
               console.log('User signed out');
               setUser(null);
@@ -137,6 +165,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               console.log('User updated:', newSession.user.id);
               setSession(newSession);
               setUser(newSession.user);
+              
+              // Refresh user status when user is updated
+              await refreshUserStatus();
             }
             
             setLoading(false);

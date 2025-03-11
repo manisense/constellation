@@ -28,11 +28,14 @@ type WaitingForPartnerProps = {
 };
 
 const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route }) => {
-  const { user, inviteCode, refreshUserStatus } = useAuth();
+  const { user, inviteCode: contextInviteCode, refreshUserStatus } = useAuth();
   const [copied, setCopied] = useState(false);
   const [subscription, setSubscription] = useState<any>(null);
   const [dots, setDots] = useState('.');
   const pulseAnim = new Animated.Value(1);
+  
+  // Get invite code from route params or context
+  const inviteCode = route.params?.inviteCode || contextInviteCode;
 
   // Start pulsing animation
   useEffect(() => {

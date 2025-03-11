@@ -72,15 +72,33 @@ const CreateConstellationScreen: React.FC<CreateConstellationScreenProps> = ({ n
         console.log('Constellation created successfully:', data.constellation_id);
         console.log('Invite code:', data.invite_code);
         
-        // Refresh user status to trigger navigation to waiting screen
+        // Refresh user status to update the context
         await refreshUserStatus();
+        
+        // Explicitly navigate to the WaitingForPartner screen
+        navigation.navigate('WaitingForPartner', { 
+          inviteCode: data.invite_code 
+        });
       } else {
         console.error("Unsuccessful response:", data);
         throw new Error(data?.message || 'Failed to create constellation');
       }
     } catch (error: any) {
       console.error('Error creating constellation:', error);
-      Alert.alert('Error', error.message || 'Failed to create constellation. Please try again.');
+      
+      // Check if the error is because the user is already in a constellation
+      if (error.message && error.message.includes('User is already in a constellation')) {
+        console.log('User is already in a constellation, redirecting to WaitingForPartner');
+        
+        // Refresh user status to get the latest data
+        await refreshUserStatus();
+        
+        // Navigate to WaitingForPartner screen
+        navigation.navigate('WaitingForPartner', {});
+      } else {
+        // Show error alert for other errors
+        Alert.alert('Error', error.message || 'Failed to create constellation. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

@@ -469,7 +469,7 @@ SET search_path = public
 AS $$
 DECLARE
     current_user_id UUID := auth.uid();
-    constellation_id UUID;
+    found_constellation_id UUID;
     member_count INTEGER;
 BEGIN
     IF current_user_id IS NULL THEN
@@ -491,11 +491,11 @@ BEGIN
     END IF;
     
     -- Find the constellation with the given invite code
-    SELECT c.id INTO constellation_id
+    SELECT c.id INTO found_constellation_id
     FROM constellations c
     WHERE c.invite_code = join_constellation_with_code.invite_code;
     
-    IF constellation_id IS NULL THEN
+    IF found_constellation_id IS NULL THEN
         RETURN jsonb_build_object(
             'success', false,
             'message', 'Invalid invite code'
@@ -505,7 +505,7 @@ BEGIN
     -- Check if the constellation already has 2 members
     SELECT COUNT(*) INTO member_count
     FROM constellation_members cm
-    WHERE cm.constellation_id = constellation_id;
+    WHERE cm.constellation_id = found_constellation_id;
     
     IF member_count >= 2 THEN
         RETURN jsonb_build_object(
@@ -516,12 +516,12 @@ BEGIN
     
     -- Add the user to the constellation
     INSERT INTO constellation_members (constellation_id, user_id)
-    VALUES (constellation_id, current_user_id);
+    VALUES (found_constellation_id, current_user_id);
     
     RETURN jsonb_build_object(
         'success', true,
         'message', 'Successfully joined constellation',
-        'constellation_id', constellation_id
+        'constellation_id', found_constellation_id
     );
 EXCEPTION
     WHEN OTHERS THEN

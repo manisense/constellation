@@ -28,12 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>com.constellation.app</string>
-        </array>
-      </dict>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>com.googleusercontent.apps.272767182752-284r9j4fhrst4nq4i9vg7u1uo3j4bb19</string>
+          <string>com.constellation.app</string>
         </array>
       </dict>
       <dict>
@@ -45,6 +40,8 @@
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSAppTransportSecurity</key>

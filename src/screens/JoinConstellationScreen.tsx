@@ -60,7 +60,7 @@ const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({ navig
       console.log("Joining constellation with invite code:", inviteCode.toUpperCase());
       console.log("User ID:", user.id);
       
-      // Join constellation using the RPC function
+      // Join constellation using direct SQL approach (bypassing RPC)
       const { data, error } = await joinConstellationWithCode(inviteCode.toUpperCase());
       
       if (error) {
@@ -68,18 +68,35 @@ const JoinConstellationScreen: React.FC<JoinConstellationScreenProps> = ({ navig
         throw error;
       }
       
-      if (data && data.success) {
+      // Check if the response indicates success
+      if (data && data.success === true) {
         console.log('Successfully joined constellation:', data.constellation_id);
         
-        // Refresh user status to trigger navigation to the appropriate screen
+        // Refresh user status to update the context
         await refreshUserStatus();
+        
+        // Navigate to the Quiz screen
+        console.log('Navigating to Quiz screen');
+        navigation.navigate('Quiz');
       } else {
         console.error("Unsuccessful response:", data);
         throw new Error(data?.message || 'Failed to join constellation');
       }
     } catch (error: any) {
       console.error('Error joining constellation:', error);
-      Alert.alert('Error', error.message || 'Failed to join constellation. Please try again.');
+      
+      // Check if the error is because the user is already in a constellation
+      if (error.message && error.message.includes('User is already in a constellation')) {
+        console.log('User is already in a constellation, refreshing status');
+        
+        // Refresh user status to get the latest data
+        await refreshUserStatus();
+        
+        // The navigation will be handled by the AppNavigator based on userStatus
+      } else {
+        // Show error alert for other errors
+        Alert.alert('Error', error.message || 'Failed to join constellation. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
