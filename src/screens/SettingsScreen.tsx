@@ -30,10 +30,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
       const { error } = await signOut();
       if (error) throw error;
       
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
+      // Use a timeout to ensure the signOut process completes
+      setTimeout(() => {
+        // Reset navigation to Welcome screen
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Welcome' }],
+        });
+      }, 500);
     } catch (error: any) {
       console.error('Sign out error:', error);
       Alert.alert(

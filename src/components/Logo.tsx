@@ -13,6 +13,9 @@ const Logo: React.FC<LogoProps> = ({ size = 40, style }) => {
         source={require('../assets/images/constellation.png')}
         style={[styles.image, { width: size, height: size }]}
         resizeMode="contain"
+        onError={(e) => {
+          console.error('Error loading logo image:', e.nativeEvent.error);
+        }}
       />
     </View>
   );

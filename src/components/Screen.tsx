@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../constants/theme';
 import Header from './Header';
+import { useAuth } from '../provider/AuthProvider';
 
 interface ScreenProps {
   children: React.ReactNode;
@@ -34,6 +35,12 @@ const Screen: React.FC<ScreenProps> = ({
   keyboardAvoiding = false,
   style,
 }) => {
+  const { user } = useAuth();
+  
+  // Only show profile and notification buttons if user is authenticated
+  const shouldShowProfile = showProfile && !!user;
+  const shouldShowNotification = showNotification && !!user;
+
   const renderContent = () => {
     let content = <View style={[styles.contentContainer, style]}>{children}</View>;
 
@@ -66,18 +73,23 @@ const Screen: React.FC<ScreenProps> = ({
     <View style={styles.mainContainer}>
       <StatusBar
         barStyle="light-content"
-        backgroundColor="transparent"
+        backgroundColor={COLORS.gray900}
         translucent={true}
       />
+      {/* SafeAreaView for top inset (status bar) */}
       <SafeAreaView style={styles.safeAreaTop} />
+      
+      {/* Header */}
       {showHeader && (
         <Header
           title={headerTitle}
           showLogo={showLogo}
-          showProfile={showProfile}
-          showNotification={showNotification}
+          showProfile={shouldShowProfile}
+          showNotification={shouldShowNotification}
         />
       )}
+      
+      {/* Main content */}
       <SafeAreaView style={styles.safeAreaContent}>
         {renderContent()}
       </SafeAreaView>
