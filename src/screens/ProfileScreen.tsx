@@ -15,7 +15,7 @@ import Screen from '../components/Screen';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import * as ImagePicker from 'expo-image-picker';
-import { supabase, uploadFile, getFileUrl } from '../utils/supabase';
+import { supabase, updateProfile, getProfile } from '../utils/supabase';
 import { useAuth } from '../hooks/useAuth';
 
 type ProfileScreenProps = {
@@ -27,6 +27,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
   const [starName, setStarName] = useState('');
+  const [starType, setStarType] = useState<string | null>(null);
   const [interests, setInterests] = useState<string[]>([]);
   const [newInterest, setNewInterest] = useState('');
   const [profileImage, setProfileImage] = useState<string | null>(null);
@@ -58,21 +59,19 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     try {
       setLoading(true);
       
-      // Get user profile from Supabase
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      // Get user profile from Supabase using the getProfile function
+      const { data, error } = await getProfile();
       
       if (error) throw error;
       
       if (data) {
+        console.log('Profile data loaded:', data);
         setName(data.name || '');
         setAbout(data.about || '');
-        setStarName(data.starName || '');
+        setStarName(data.star_name || '');
+        setStarType(data.star_type || null);
         setInterests(data.interests || []);
-        setProfileImage(data.avatar_url || null);
+        setProfileImage(data.avatar_url || data.photo_url || null);
         
         // Get constellation membership
         const { data: memberData, error: memberError } = await supabase
@@ -87,6 +86,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('Error loading profile data:', error);
+      Alert.alert('Error', 'Failed to load profile data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -158,15 +158,29 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
       const blob = await response.blob();
 
       // Upload to Supabase Storage
-      const filePath = `profile_images/${user.id}_${Date.now()}`;
-      const { data, error } = await uploadFile('avatars', filePath, blob);
+      const filePath = `profile_photos/${user.id}_${Date.now()}`;
+      const { data, error } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, blob, {
+          upsert: true,
+          contentType: 'image/jpeg'
+        });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Storage upload error:', error);
+        throw error;
+      }
       
       // Get public URL
-      return getFileUrl('avatars', filePath);
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+      
+      console.log('Image uploaded successfully:', urlData.publicUrl);
+      return urlData.publicUrl;
     } catch (error) {
       console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload profile image. Please try again.');
       return null;
     }
   };
@@ -181,28 +195,47 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
       let avatarUrl = profileImage;
 
       if (newImageUri) {
+        console.log('Uploading new profile image...');
         avatarUrl = await uploadProfileImage();
+        if (!avatarUrl) {
+          Alert.alert('Warning', 'Failed to upload profile image, but will continue saving other profile data.');
+        }
       }
 
-      // Update the user profile in Supabase
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          name,
-          about,
-          starName,
-          interests,
-          avatar_url: avatarUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', user.id);
+      console.log('Updating profile with data:', {
+        name,
+        about,
+        star_name: starName,
+        interests,
+        photo_url: avatarUrl,
+        avatar_url: avatarUrl
+      });
+
+      // Update the user profile using the updateProfile function
+      const { success, error } = await updateProfile({
+        name,
+        about,
+        star_name: starName,
+        star_type: starType || undefined,
+        interests,
+        photo_url: avatarUrl || undefined,
+        avatar_url: avatarUrl || undefined
+      });
 
       if (error) throw error;
 
-      // Navigate to quiz
-      navigation.navigate('Quiz');
+      if (success) {
+        Alert.alert('Success', 'Profile updated successfully!');
+        // Navigate to quiz or appropriate screen
+        if (constellationId) {
+          navigation.navigate('Home');
+        } else {
+          navigation.navigate('Quiz');
+        }
+      }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      console.error('Profile update error:', error);
+      Alert.alert('Error', error.message || 'Failed to update profile');
     } finally {
       setLoading(false);
     }

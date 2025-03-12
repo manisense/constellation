@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { createClient } from '@supabase/supabase-js'
+import { Alert } from 'react-native';
 
 // Use hardcoded values from .env file since process.env isn't working correctly
 const supabaseUrl = "https://ppipubzwklhrfhzsdjkl.supabase.co";
@@ -73,11 +74,12 @@ export const signUpWithEmail = async (email: string, password: string, userData:
             .insert({
               id: data.user.id,
               name: userData.name || 'User',
-              about: '',
-              interests: [],
-              star_name: '',
-              star_type: null,
+              about: userData.bio || '',
+              interests: userData.interests || [],
+              star_name: userData.star_name || '',
+              star_type: userData.star_type || null,
               photo_url: userData.photo_url || '',
+              avatar_url: userData.photo_url || '',
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             });
@@ -118,11 +120,17 @@ export const signInWithEmail = async (email: string, password: string) => {
     
     if (error) {
       console.error("Auth signin error:", error);
+      if (error.message.includes('Invalid login credentials')) {
+        Alert.alert('Login Failed', 'Invalid email or password. Please try again.');
+      } else {
+        Alert.alert('Login Error', error.message);
+      }
       throw error;
     }
     
     if (!data.user) {
       console.error("No user returned from signin");
+      Alert.alert('Login Error', 'Failed to sign in. Please try again.');
       throw new Error("Failed to sign in");
     }
     
@@ -154,11 +162,12 @@ export const signInWithEmail = async (email: string, password: string) => {
             .insert({
               id: data.user.id,
               name: data.user.user_metadata?.name || 'User',
-              about: '',
-              interests: [],
-              star_name: '',
-              star_type: null,
+              about: data.user.user_metadata?.bio || '',
+              interests: data.user.user_metadata?.interests || [],
+              star_name: data.user.user_metadata?.star_name || '',
+              star_type: data.user.user_metadata?.star_type || null,
               photo_url: data.user.user_metadata?.avatar_url || '',
+              avatar_url: data.user.user_metadata?.avatar_url || '',
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             });
@@ -214,6 +223,107 @@ export const signOut = async () => {
   }
 };
 
+// Profile functions
+export const updateProfile = async (profileData: {
+  name?: string;
+  about?: string;
+  interests?: any[];
+  star_name?: string;
+  star_type?: string;
+  photo_url?: string;
+  avatar_url?: string;
+}) => {
+  try {
+    const user = await supabase.auth.getUser();
+    if (!user.data.user) {
+      throw new Error('No authenticated user found');
+    }
+
+    // Use the RPC function for better error handling
+    const { data, error } = await supabase.rpc('update_profile', {
+      name: profileData.name,
+      about: profileData.about,
+      interests: profileData.interests,
+      star_name: profileData.star_name,
+      star_type: profileData.star_type,
+      avatar_url: profileData.avatar_url,
+    });
+
+    if (error) {
+      console.error('Error updating profile via RPC:', error);
+      
+      // Fallback to direct update
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          name: profileData.name,
+          about: profileData.about,
+          interests: profileData.interests,
+          star_name: profileData.star_name,
+          star_type: profileData.star_type,
+          photo_url: profileData.photo_url || profileData.avatar_url,
+          avatar_url: profileData.avatar_url || profileData.photo_url,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.data.user.id);
+      
+      if (updateError) {
+        console.error('Error updating profile directly:', updateError);
+        throw updateError;
+      }
+      
+      return { success: true };
+    }
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('Profile update error:', error);
+    return { success: false, error };
+  }
+};
+
+export const getProfile = async () => {
+  try {
+    const user = await supabase.auth.getUser();
+    if (!user.data.user) {
+      throw new Error('No authenticated user found');
+    }
+
+    // Try using the RPC function first
+    try {
+      const { data, error } = await supabase.rpc('get_profile');
+      
+      if (error) {
+        console.error('Error getting profile via RPC:', error);
+        throw error;
+      }
+      
+      if (data && data.success) {
+        return { data: data.profile, error: null };
+      }
+    } catch (rpcError) {
+      console.log('Falling back to direct profile query');
+    }
+
+    // Fallback to direct query
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.data.user.id)
+      .single();
+    
+    if (error) {
+      console.error('Error getting profile:', error);
+      throw error;
+    }
+    
+    return { data, error: null };
+  } catch (error) {
+    console.error('Profile retrieval error:', error);
+    return { data: null, error };
+  }
+};
+
 // Constellation functions
 export const getUserConstellationStatus = async () => {
   try {
@@ -248,264 +358,363 @@ export const createConstellation = async (name: string) => {
         console.log("Falling back to direct SQL approach");
         
         // Step 1: Create the constellation with a name
-        const { data: constData, error: constError } = await supabase
+        const { data: constellationData, error: constellationError } = await supabase
           .from('constellations')
           .insert({
             name: name,
+            invite_code: generateInviteCode(),
             created_by: (await supabase.auth.getUser()).data.user?.id
           })
-          .select('id, invite_code')
+          .select()
           .single();
-          
-        if (constError) {
-          console.error("Direct constellation creation error:", constError);
-          throw constError;
+        
+        if (constellationError) {
+          console.error("Error creating constellation:", constellationError);
+          throw constellationError;
         }
         
-        // Step 2: Add the user as a member
+        // Step 2: Add the current user as a member
         const { error: memberError } = await supabase
           .from('constellation_members')
           .insert({
-            constellation_id: constData.id,
-            user_id: (await supabase.auth.getUser()).data.user?.id
+            constellation_id: constellationData.id,
+            user_id: (await supabase.auth.getUser()).data.user?.id,
+            status: 'active',
+            star_type: 'luminary'
           });
-          
+        
         if (memberError) {
-          console.error("Member creation error:", memberError);
+          console.error("Error adding member:", memberError);
           throw memberError;
         }
         
-        return { 
-          data: {
-            success: true,
-            message: 'Constellation created successfully',
-            constellation_id: constData.id,
-            invite_code: constData.invite_code
-          }, 
-          error: null 
-        };
+        return { data: constellationData, error: null };
+      } else {
+        throw error;
       }
-      
-      throw error;
     }
     
     return { data, error: null };
-  } catch (error) {
-    console.error("Create constellation error:", error);
+  } catch (error: any) {
+    console.error("Exception in createConstellation:", error.message || error);
     return { data: null, error };
   }
 };
 
-export const joinConstellationWithCode = async (inviteCode: string) => {
+export const joinConstellation = async (inviteCode: string) => {
   try {
-    console.log("Joining constellation with invite code:", inviteCode);
+    // First try using the RPC function
+    const { data, error } = await supabase.rpc('join_constellation', {
+      invite_code: inviteCode
+    });
     
-    // Get the current user ID
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return { 
-        data: {
-          success: false,
-          message: 'No authenticated user found'
-        }, 
-        error: null 
-      };
-    }
-    
-    const userId = user.id;
-    console.log("User ID:", userId);
-    
-    // Try a direct approach using a single RPC call
-    try {
-      // First try the RPC function
-      const { data, error } = await supabase.rpc('join_constellation_with_code', {
-        invite_code: inviteCode
-      });
+    if (error) {
+      console.error("RPC error:", error);
       
-      if (error) {
-        console.error("RPC error:", error);
-        throw error;
-      }
-      
-      // Check if the response indicates success
-      if (data && data.success === true) {
-        console.log("Successfully joined constellation via RPC:", data);
-        return { data, error: null };
-      } else {
-        console.error("RPC returned unsuccessful response:", data);
-        throw new Error(data?.message || 'Unsuccessful response from server');
-      }
-    } catch (rpcError) {
-      console.error("RPC approach failed:", rpcError);
-      
-      // Fall back to a direct approach with minimal queries
-      try {
-        // Step 1: Find the constellation ID directly
-        const { data: constData, error: constError } = await supabase
+      // If we get an error, try a direct approach
+      if (error.message) {
+        console.log("Falling back to direct SQL approach");
+        
+        // Step 1: Find the constellation with the invite code
+        const { data: constellationData, error: constellationError } = await supabase
           .from('constellations')
           .select('id')
           .eq('invite_code', inviteCode)
           .single();
-          
-        if (constError) {
-          console.error("Error finding constellation:", constError);
-          return { 
-            data: {
-              success: false,
-              message: 'Invalid invite code or error finding constellation'
-            }, 
-            error: constError 
-          };
+        
+        if (constellationError) {
+          console.error("Error finding constellation:", constellationError);
+          throw new Error("Invalid invite code");
         }
         
-        const constellationId = constData.id;
-        console.log("Found constellation ID:", constellationId);
+        // Step 2: Check if user is already a member
+        const userId = (await supabase.auth.getUser()).data.user?.id;
+        const { data: existingMember, error: memberCheckError } = await supabase
+          .from('constellation_members')
+          .select('id')
+          .eq('constellation_id', constellationData.id)
+          .eq('user_id', userId)
+          .maybeSingle();
         
-        // Step 2: Insert directly into constellation_members
-        try {
-          // First try a direct insert
-          const { error: insertError } = await supabase
-            .from('constellation_members')
-            .insert({
-              constellation_id: constellationId,
-              user_id: userId
-            });
-            
-          if (insertError) {
-            console.error("Direct insert error:", insertError);
-            throw insertError;
-          }
-        } catch (insertError) {
-          console.error("Direct insert failed, trying SQL execution:", insertError);
-          
-          // If direct insert fails, try using execute_sql function
-          try {
-            const { error: sqlError } = await supabase.rpc('execute_sql', {
-              sql_query: `
-                INSERT INTO constellation_members (constellation_id, user_id)
-                VALUES ('${constellationId}', '${userId}')
-                ON CONFLICT (constellation_id, user_id) DO NOTHING
-              `
-            });
-            
-            if (sqlError) {
-              console.error("SQL execution error:", sqlError);
-              throw sqlError;
-            }
-          } catch (sqlError) {
-            console.error("SQL execution failed:", sqlError);
-            return { 
-              data: {
-                success: false,
-                message: 'Failed to join constellation via SQL execution'
-              }, 
-              error: sqlError 
-            };
-          }
+        if (memberCheckError) {
+          console.error("Error checking membership:", memberCheckError);
+          throw memberCheckError;
         }
         
-        console.log("Successfully joined constellation via direct approach");
-        return { 
-          data: {
-            success: true,
-            message: 'Successfully joined constellation',
-            constellation_id: constellationId
-          }, 
-          error: null 
-        };
-      } catch (directError: any) {
-        console.error("Direct approach failed:", directError);
-        return { 
-          data: {
-            success: false,
-            message: 'Failed to join constellation: ' + (directError.message || 'Unknown error')
-          }, 
-          error: directError 
-        };
+        if (existingMember) {
+          return { data: { already_member: true }, error: null };
+        }
+        
+        // Step 3: Add the current user as a member
+        const { data: memberData, error: memberError } = await supabase
+          .from('constellation_members')
+          .insert({
+            constellation_id: constellationData.id,
+            user_id: userId,
+            status: 'active',
+            star_type: 'navigator'
+          })
+          .select()
+          .single();
+        
+        if (memberError) {
+          console.error("Error adding member:", memberError);
+          throw memberError;
+        }
+        
+        return { data: { success: true, constellation_id: constellationData.id }, error: null };
+      } else {
+        throw error;
       }
     }
+    
+    return { data, error: null };
   } catch (error: any) {
-    console.error("Join constellation error:", error);
-    return { 
-      data: {
-        success: false,
-        message: 'Error joining constellation: ' + (error.message || 'Unknown error')
-      }, 
-      error 
-    };
-  }
-};
-
-export const updateMemberStatus = async (status: 'joined' | 'quiz_completed' | 'ready') => {
-  try {
-    const { data, error } = await supabase.rpc('update_member_status', {
-      status_value: status
-    });
-    if (error) throw error;
-    return { data, error: null };
-  } catch (error) {
+    console.error("Exception in joinConstellation:", error.message || error);
     return { data: null, error };
   }
 };
 
-export const shouldShowHomeScreen = async () => {
+// Chat functions
+export const getConstellationMessages = async (constellationId: string) => {
   try {
-    const { data, error } = await supabase.rpc('should_show_home_screen');
-    if (error) throw error;
-    return { data, error: null };
-  } catch (error) {
-    return { data: false, error };
-  }
-};
-
-// Profile functions
-export const getUserProfile = async (userId: string) => {
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
+    console.log(`Getting messages for constellation: ${constellationId}`);
     
-    if (error) throw error;
-    return { data, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-};
-
-export const updateUserProfile = async (userId: string, updates: any) => {
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', userId);
-    
-    if (error) throw error;
-    return { data, error: null };
-  } catch (error) {
-    return { data: null, error };
-  }
-};
-
-// Storage functions
-export const uploadFile = async (bucket: string, path: string, file: any) => {
-  try {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .upload(path, file, {
-        upsert: true
+    // Try using the RPC function first
+    try {
+      const { data, error } = await supabase.rpc('get_constellation_messages', { 
+        constellation_id: constellationId 
       });
+      
+      if (error) {
+        console.error('Error getting messages via RPC:', error);
+        throw error;
+      }
+      
+      console.log(`Retrieved ${data.length} messages`);
+      return { data, error: null };
+    } catch (rpcError) {
+      console.log('Falling back to direct query');
+      
+      // Fallback to direct query with proper table aliases
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`
+          id,
+          constellation_id,
+          user_id,
+          content,
+          image_url,
+          created_at,
+          profiles:user_id (name)
+        `)
+        .eq('constellation_id', constellationId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      
+      if (error) {
+        console.error('Error getting messages directly:', error);
+        throw error;
+      }
+      
+      // Transform the data to match the expected format
+      const formattedData = data.map((message: any) => ({
+        ...message,
+        sender_name: message.profiles?.name || 'Unknown'
+      }));
+      
+      console.log(`Retrieved ${formattedData.length} messages`);
+      return { data: formattedData, error: null };
+    }
+  } catch (error) {
+    console.error('Error in getConstellationMessages:', error);
+    return { data: [], error };
+  }
+};
+
+export const sendMessage = async (constellationId: string, content: string, imageUrl: string | null = null) => {
+  try {
+    console.log(`Sending message to constellation ${constellationId}`);
     
-    if (error) throw error;
+    // Try using the RPC function first
+    const { data, error } = await supabase.rpc('send_message', {
+      constellation_id: constellationId,
+      content: content || (imageUrl ? '📷 Image' : ''),
+      image_url: imageUrl
+    });
+    
+    if (error) {
+      console.error('Error sending message via RPC:', error);
+      
+      // Fallback to direct insert
+      const { data: insertData, error: insertError } = await supabase
+        .from('messages')
+        .insert({
+          constellation_id: constellationId,
+          user_id: (await supabase.auth.getUser()).data.user?.id,
+          content: content,
+          image_url: imageUrl
+        })
+        .select()
+        .single();
+      
+      if (insertError) {
+        console.error('Error sending message directly:', insertError);
+        throw insertError;
+      }
+      
+      console.log('Message sent successfully via direct insert');
+      return { data: { success: true, message_id: insertData.id }, error: null };
+    }
+    
+    console.log('Message sent successfully:', data);
     return { data, error: null };
   } catch (error) {
+    console.error('Error in sendMessage:', error);
     return { data: null, error };
   }
 };
 
-export const getFileUrl = (bucket: string, path: string) => {
-  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+export const getPartnerProfile = async (constellationId: string) => {
+  try {
+    console.log(`Getting partner profile for constellation: ${constellationId}`);
+    
+    // Try using the RPC function first
+    try {
+      const { data, error } = await supabase.rpc('get_partner_profile', {
+        constellation_id: constellationId
+      });
+      
+      if (error) {
+        console.error('Error getting partner profile via RPC:', error);
+        throw error;
+      }
+      
+      if (data && data.success) {
+        return { data: data.partner, error: null };
+      } else {
+        console.log('No partner found or error:', data?.error);
+        return { data: null, error: data?.error || 'No partner found' };
+      }
+    } catch (rpcError) {
+      console.log('Falling back to direct query');
+      
+      // Fallback to direct query with proper table aliases
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      
+      // Define the expected type for the response
+      type PartnerProfileResponse = {
+        user_id: string;
+        star_type: string;
+        profiles: {
+          id: string;
+          name: string;
+          about: string;
+          photo_url: string;
+          star_name: string;
+          star_type: string;
+        };
+      };
+      
+      const { data, error } = await supabase
+        .from('constellation_members')
+        .select(`
+          user_id,
+          star_type,
+          profiles:user_id (
+            id,
+            name,
+            about,
+            photo_url,
+            star_name,
+            star_type
+          )
+        `)
+        .eq('constellation_id', constellationId)
+        .neq('user_id', userId)
+        .limit(1)
+        .single();
+      
+      if (error) {
+        console.error('Error getting partner profile directly:', error);
+        throw error;
+      }
+      
+      // Cast the data to the expected type
+      const typedData = data as unknown as PartnerProfileResponse;
+      
+      // Transform the data to match the expected format
+      const partnerData = {
+        id: typedData.profiles?.id || '',
+        name: typedData.profiles?.name || 'Unknown',
+        bio: typedData.profiles?.about || '',
+        avatar_url: typedData.profiles?.photo_url || '',
+        star_name: typedData.profiles?.star_name || '',
+        star_type: typedData.star_type || 'navigator'
+      };
+      
+      return { data: partnerData, error: null };
+    }
+  } catch (error) {
+    console.error('Failed to get partner profile:', error);
+    return { data: null, error: 'Unknown error' };
+  }
+};
+
+export const increaseBondingStrength = async (constellationId: string, amount: number = 1) => {
+  try {
+    // Try using the RPC function first
+    const { data, error } = await supabase.rpc('increase_bonding_strength', {
+      constellation_id: constellationId,
+      amount: amount
+    });
+    
+    if (error) {
+      console.error('Error increasing bonding strength via RPC:', error);
+      
+      // Fallback to direct update
+      const { data: constellationData, error: getError } = await supabase
+        .from('constellations')
+        .select('bonding_strength')
+        .eq('id', constellationId)
+        .single();
+      
+      if (getError) {
+        console.error('Error getting constellation data:', getError);
+        throw getError;
+      }
+      
+      const currentStrength = constellationData.bonding_strength || 0;
+      const newStrength = Math.min(100, currentStrength + amount);
+      
+      const { error: updateError } = await supabase
+        .from('constellations')
+        .update({ bonding_strength: newStrength })
+        .eq('id', constellationId);
+      
+      if (updateError) {
+        console.error('Error updating bonding strength directly:', updateError);
+        throw updateError;
+      }
+      
+      return { success: true };
+    }
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('Error in increaseBondingStrength:', error);
+    return { success: false, error };
+  }
+};
+
+// Helper functions
+const generateInviteCode = () => {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
 };
 
   

@@ -23,20 +23,21 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { decode } from 'base64-arraybuffer';
 import uuid from 'react-native-uuid';
+import {
+  Message,
+  getConstellationMessages,
+  setupMessageSubscription,
+  pickImage,
+  sendMessage,
+  getPartnerProfile,
+  increaseBondingStrength
+} from '../utils/clientFixes';
 
 type ChatScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
 };
 
-interface Message {
-  id: string;
-  content: string;
-  user_id: string;
-  created_at: string;
-  image_url?: string;
-}
-
-const ChatScreen: React.FC<ChatScreenProps> = () => {
+const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -44,10 +45,11 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
   const [sending, setSending] = useState(false);
   const [constellationId, setConstellationId] = useState<string | null>(null);
   const [partnerName, setPartnerName] = useState('Partner');
-  const [subscription, setSubscription] = useState<any>(null);
+  const [partnerStarType, setPartnerStarType] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const [bondingStrength, setBondingStrength] = useState(0);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -56,10 +58,7 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
     }
     
     return () => {
-      // Clean up subscription
-      if (subscription) {
-        subscription.unsubscribe();
-      }
+      // Cleanup will be handled by the setupMessageSubscription function
     };
   }, [user]);
 
@@ -82,86 +81,59 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
       }
       
       if (memberData && memberData.constellation_id) {
-        console.log("Found constellation ID:", memberData.constellation_id);
-        setConstellationId(memberData.constellation_id);
+        const constellationId = memberData.constellation_id;
+        console.log("Found constellation ID:", constellationId);
+        setConstellationId(constellationId);
         
-        // Get initial messages
-        const { data: messageData, error: messageError } = await supabase
-          .from('messages')
-          .select(`
-            id,
-            content,
-            user_id,
-            created_at,
-            image_url
-          `)
-          .eq('constellation_id', memberData.constellation_id)
-          .order('created_at', { ascending: false })
-          .limit(50);
-        
-        if (messageError) {
-          console.error('Error fetching messages:', messageError);
-          throw messageError;
-        }
-        
-        if (messageData) {
+        // Get initial messages using the improved function
+        try {
+          const messageData = await getConstellationMessages(constellationId);
           console.log(`Loaded ${messageData.length} messages`);
-          setMessages(messageData.reverse());
+          setMessages(messageData);
+        } catch (error) {
+          console.error('Error fetching messages:', error);
         }
         
-        // Subscribe to new messages
+        // Subscribe to new messages using the improved function
         console.log("Setting up realtime subscription for messages...");
-        const newSubscription = supabase
-          .channel(`messages:constellation_id=eq.${memberData.constellation_id}`)
-          .on('postgres_changes', { 
-            event: 'INSERT', 
-            schema: 'public', 
-            table: 'messages',
-            filter: `constellation_id=eq.${memberData.constellation_id}`
-          }, (payload) => {
-            console.log("Received new message:", payload.new);
-            // Add new message to the list
-            setMessages(prevMessages => [...prevMessages, payload.new as Message]);
-            // Scroll to bottom
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: true });
-            }, 100);
-          })
-          .subscribe();
+        const cleanup = setupMessageSubscription(constellationId, (newMessage) => {
+          console.log("Received new message:", newMessage);
+          // Add new message to the list
+          setMessages(prevMessages => [...prevMessages, newMessage]);
+          // Scroll to bottom
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        });
         
-        setSubscription(newSubscription);
-        
-        // Get partner info using a separate query
-        const { data: partners, error: partnersError } = await supabase
-          .from('constellation_members')
-          .select('user_id')
-          .eq('constellation_id', memberData.constellation_id)
-          .neq('user_id', user.id);
-        
-        if (partnersError) {
-          console.error('Error fetching partner info:', partnersError);
-          throw partnersError;
+        // Get partner info using the improved function
+        try {
+          const partnerProfile = await getPartnerProfile(constellationId);
+          if (partnerProfile) {
+            console.log("Partner profile:", partnerProfile);
+            setPartnerName(partnerProfile.name || 'Partner');
+            setPartnerStarType(partnerProfile.star_type || null);
+          } else {
+            console.log("No partner found in constellation");
+          }
+        } catch (error) {
+          console.error('Error fetching partner profile:', error);
         }
         
-        if (partners && partners.length > 0) {
-          const partnerId = partners[0].user_id;
-          console.log("Found partner ID:", partnerId);
-          
-          // Get partner profile
-          const { data: partnerProfile, error: profileError } = await supabase
-            .from('profiles')
-            .select('name')
-            .eq('id', partnerId)
+        // Get constellation data including bonding strength
+        try {
+          const { data: constellationData, error: constellationError } = await supabase
+            .from('constellations')
+            .select('bonding_strength')
+            .eq('id', constellationId)
             .single();
             
-          if (!profileError && partnerProfile) {
-            console.log("Partner name:", partnerProfile.name);
-            setPartnerName(partnerProfile.name || 'Partner');
-          } else {
-            console.error('Error fetching partner profile:', profileError);
+          if (!constellationError && constellationData) {
+            console.log("Constellation bonding strength:", constellationData.bonding_strength);
+            setBondingStrength(constellationData.bonding_strength || 0);
           }
-        } else {
-          console.log("No partner found in constellation");
+        } catch (error) {
+          console.error('Error loading constellation data:', error);
         }
       } else {
         console.log("No constellation found for user");
@@ -178,85 +150,25 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
     
     try {
       setSending(true);
-      let imageUrl = null;
       
-      // Upload image if selected
-      if (selectedImage) {
-        const imageId = uuid.v4() as string;
-        const fileExt = selectedImage.split('.').pop();
-        const fileName = `${imageId}.${fileExt}`;
-        const filePath = `${constellationId}/${fileName}`;
-        
-        // Convert image to base64 and upload
-        const response = await fetch(selectedImage);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        
-        // Convert blob to base64
-        const base64Promise = new Promise<string>((resolve) => {
-          reader.onloadend = () => {
-            const base64data = reader.result as string;
-            resolve(base64data.split(',')[1]);
-          };
-        });
-        
-        reader.readAsDataURL(blob);
-        const base64data = await base64Promise;
-        
-        // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('chat_images')
-          .upload(filePath, decode(base64data), {
-            contentType: `image/${fileExt}`,
-          });
-        
-        if (uploadError) {
-          console.error('Error uploading image:', uploadError);
-          Alert.alert('Error', 'Failed to upload image. Please try again.');
-          setSending(false);
-          return;
-        }
-        
-        // Get public URL
-        const { data: publicUrlData } = supabase.storage
-          .from('chat_images')
-          .getPublicUrl(filePath);
-        
-        imageUrl = publicUrlData.publicUrl;
-      }
+      // Use the improved sendMessage function
+      const success = await sendMessage(
+        constellationId,
+        newMessage.trim(),
+        selectedImage
+      );
       
-      console.log("Sending message:", newMessage, "Image URL:", imageUrl);
-      
-      // Add message to Supabase
-      const { data, error } = await supabase
-        .from('messages')
-        .insert([{
-          constellation_id: constellationId,
-          user_id: user.id,
-          content: newMessage.trim() || '📷 Image',
-          image_url: imageUrl,
-        }])
-        .select();
-      
-      if (error) {
-        console.error('Error sending message:', error);
-        throw error;
-      }
-      
-      console.log("Message sent successfully:", data);
-      
-      // Clear input and selected image
-      setNewMessage('');
-      setSelectedImage(null);
-      
-      // Increase bonding strength
-      try {
-        await supabase.rpc('increase_bonding_strength', {
-          constellation_id_param: constellationId,
-          amount: 1
-        });
-      } catch (error) {
-        console.error('Error increasing bonding strength:', error);
+      if (success) {
+        console.log("Message sent successfully");
+        
+        // Clear input and selected image
+        setNewMessage('');
+        setSelectedImage(null);
+        
+        // Update bonding strength locally
+        setBondingStrength(prev => Math.min(prev + 1, 100));
+      } else {
+        throw new Error('Failed to send message');
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -266,30 +178,10 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
     }
   };
 
-  const pickImage = async () => {
-    try {
-      // Request permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please allow access to your photo library to share images.');
-        return;
-      }
-      
-      // Launch image picker
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-      
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image. Please try again.');
+  const handlePickImage = async () => {
+    const uri = await pickImage();
+    if (uri) {
+      setSelectedImage(uri);
     }
   };
 
@@ -319,51 +211,72 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
         )}
         <Text style={styles.messageText}>{item.content}</Text>
         <Text style={styles.messageTime}>
-          {formatTime(new Date(item.created_at))}
+          {new Date(item.created_at).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
         </Text>
       </View>
     );
   };
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const renderBondingStrength = () => {
+    return (
+      <View style={styles.bondingContainer}>
+        <Text style={styles.bondingText}>Bonding Strength</Text>
+        <View style={styles.bondingBarContainer}>
+          <View 
+            style={[
+              styles.bondingBar, 
+              { width: `${bondingStrength}%` }
+            ]} 
+          />
+        </View>
+        <Text style={styles.bondingValue}>{bondingStrength}%</Text>
+      </View>
+    );
   };
 
-  return (
-    <Screen showHeader={true} headerTitle={`Chat with ${partnerName}`}>
-      {loading ? (
+  if (loading) {
+    return (
+      <Screen showHeader headerTitle="Chat">
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading messages...</Text>
+          <Text style={styles.loadingText}>Loading chat...</Text>
         </View>
-      ) : (
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        >
-          {messages.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="chatbubble-outline" size={64} color={COLORS.gray500} />
-              <Text style={styles.emptyText}>No messages yet</Text>
-              <Text style={styles.emptySubtext}>Start the conversation with your partner!</Text>
-            </View>
-          ) : (
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              renderItem={renderMessage}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={styles.messageList}
-              inverted={false}
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-              onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-            />
-          )}
+      </Screen>
+    );
+  }
 
+  return (
+    <Screen showHeader headerTitle={`Chat with ${partnerName}`}>
+      <View style={styles.container}>
+        {renderBondingStrength()}
+        
+        {messages.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="chatbubble-outline" size={64} color={COLORS.gray500} />
+            <Text style={styles.emptyText}>No messages yet</Text>
+            <Text style={styles.emptySubtext}>
+              Start a conversation with your {partnerStarType === 'luminary' ? 'Luminary' : 'Navigator'} partner
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.messagesList}
+            onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          />
+        )}
+        
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={100}
+          style={styles.inputContainer}
+        >
           {selectedImage && (
             <View style={styles.selectedImageContainer}>
               <Image
@@ -379,24 +292,24 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
               </TouchableOpacity>
             </View>
           )}
-
-          <View style={styles.inputContainer}>
+          
+          <View style={styles.inputRow}>
             <TouchableOpacity
               style={styles.attachButton}
-              onPress={pickImage}
+              onPress={handlePickImage}
               disabled={sending}
             >
-              <Ionicons name="image-outline" size={24} color={COLORS.accent} />
+              <Ionicons name="image-outline" size={24} color={COLORS.primary} />
             </TouchableOpacity>
             
             <TextInput
               style={styles.input}
-              value={newMessage}
-              onChangeText={setNewMessage}
               placeholder="Type a message..."
               placeholderTextColor={COLORS.gray500}
+              value={newMessage}
+              onChangeText={setNewMessage}
               multiline
-              editable={!sending}
+              maxLength={500}
             />
             
             <TouchableOpacity
@@ -417,32 +330,31 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
-      )}
-
-      {/* Image Viewer Modal */}
-      <Modal
-        visible={showImageModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowImageModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.closeModalButton}
-            onPress={() => setShowImageModal(false)}
-          >
-            <Ionicons name="close" size={28} color={COLORS.white} />
-          </TouchableOpacity>
-          
-          {viewingImage && (
-            <Image
-              source={{ uri: viewingImage }}
-              style={styles.fullImage}
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
+        
+        <Modal
+          visible={showImageModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowImageModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <TouchableOpacity
+              style={styles.closeModalButton}
+              onPress={() => setShowImageModal(false)}
+            >
+              <Ionicons name="close" size={30} color={COLORS.white} />
+            </TouchableOpacity>
+            
+            {viewingImage && (
+              <Image
+                source={{ uri: viewingImage }}
+                style={styles.fullImage}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+        </Modal>
+      </View>
     </Screen>
   );
 };
@@ -450,6 +362,7 @@ const ChatScreen: React.FC<ChatScreenProps> = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.background,
   },
   loadingContainer: {
     flex: 1,
@@ -461,109 +374,114 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: FONTS.body1,
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: SPACING.xl,
-  },
-  emptyText: {
-    fontSize: FONTS.h3,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginTop: SPACING.l,
-  },
-  emptySubtext: {
-    fontSize: FONTS.body1,
-    color: COLORS.gray500,
-    textAlign: 'center',
-    marginTop: SPACING.s,
-  },
-  messageList: {
+  messagesList: {
     padding: SPACING.m,
-    paddingBottom: SPACING.xl,
+    paddingBottom: 100,
   },
   messageContainer: {
     maxWidth: '80%',
-    padding: SPACING.m,
-    borderRadius: 16,
-    marginBottom: SPACING.m,
+    padding: SPACING.s,
+    borderRadius: 12,
+    marginBottom: SPACING.s,
   },
   currentUserMessage: {
     alignSelf: 'flex-end',
     backgroundColor: COLORS.primary,
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 0,
   },
   otherUserMessage: {
     alignSelf: 'flex-start',
-    backgroundColor: COLORS.gray800,
-    borderBottomLeftRadius: 4,
+    backgroundColor: COLORS.card,
+    borderBottomLeftRadius: 0,
   },
   messageText: {
     color: COLORS.white,
     fontSize: FONTS.body1,
   },
   messageTime: {
-    color: COLORS.gray300,
+    color: COLORS.gray500,
     fontSize: FONTS.caption,
-    marginTop: SPACING.xs,
+    marginTop: 4,
     alignSelf: 'flex-end',
   },
   messageImage: {
-    width: 200,
-    height: 150,
+    width: '100%',
+    height: 200,
     borderRadius: 8,
     marginBottom: SPACING.s,
   },
   inputContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray600,
+    padding: SPACING.s,
+  },
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: SPACING.m,
-    backgroundColor: COLORS.gray900,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray800,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    borderRadius: 20,
+    paddingHorizontal: SPACING.m,
+    paddingVertical: SPACING.s,
+    maxHeight: 100,
+    color: COLORS.white,
+    fontSize: FONTS.body1,
   },
   attachButton: {
     padding: SPACING.s,
     marginRight: SPACING.s,
   },
-  input: {
-    flex: 1,
-    backgroundColor: COLORS.gray800,
-    borderRadius: 20,
-    paddingHorizontal: SPACING.m,
-    paddingVertical: SPACING.s,
-    color: COLORS.white,
-    maxHeight: 100,
-  },
   sendButton: {
     backgroundColor: COLORS.primary,
+    borderRadius: 20,
     width: 40,
     height: 40,
-    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: SPACING.s,
   },
   sendButtonDisabled: {
-    backgroundColor: COLORS.gray700,
+    backgroundColor: COLORS.gray500,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.l,
+  },
+  emptyText: {
+    color: COLORS.white,
+    fontSize: FONTS.h3,
+    marginTop: SPACING.m,
+  },
+  emptySubtext: {
+    color: COLORS.gray500,
+    fontSize: FONTS.body1,
+    textAlign: 'center',
+    marginTop: SPACING.s,
   },
   selectedImageContainer: {
-    padding: SPACING.s,
-    backgroundColor: COLORS.gray800,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray700,
     position: 'relative',
+    marginBottom: SPACING.s,
+    alignSelf: 'flex-start',
   },
   selectedImage: {
+    width: 100,
     height: 100,
     borderRadius: 8,
   },
   removeImageButton: {
     position: 'absolute',
-    top: SPACING.s,
-    right: SPACING.s,
-    backgroundColor: COLORS.gray900,
+    top: -10,
+    right: -10,
+    backgroundColor: COLORS.error,
     borderRadius: 12,
   },
   modalContainer: {
@@ -573,7 +491,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fullImage: {
-    width: '100%',
+    width: '90%',
     height: '80%',
   },
   closeModalButton: {
@@ -581,9 +499,36 @@ const styles = StyleSheet.create({
     top: 40,
     right: 20,
     zIndex: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
-    padding: SPACING.xs,
+  },
+  bondingContainer: {
+    backgroundColor: COLORS.card,
+    padding: SPACING.m,
+    marginHorizontal: SPACING.m,
+    marginTop: SPACING.m,
+    borderRadius: 12,
+    flexDirection: 'column',
+    alignItems: 'center',
+  },
+  bondingText: {
+    color: COLORS.white,
+    fontSize: FONTS.h4,
+    marginBottom: SPACING.s,
+  },
+  bondingBarContainer: {
+    width: '100%',
+    height: 10,
+    backgroundColor: COLORS.background,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  bondingBar: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+  },
+  bondingValue: {
+    color: COLORS.primary,
+    fontSize: FONTS.body1,
+    marginTop: SPACING.s,
   },
 });
 

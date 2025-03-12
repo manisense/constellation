@@ -171,6 +171,15 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
           />
         </View>
       </View>
+      <View style={styles.bottomSection}>
+          <TouchableOpacity
+            style={styles.signOutButton}
+            onPress={handleSignOut}
+          >
+            <Ionicons name="log-out-outline" size={20} color={COLORS.white} style={styles.buttonIcon} />
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
     </Screen>
   );
 };
@@ -229,6 +238,37 @@ const styles = StyleSheet.create({
   },
   stepContent: {
     flex: 1,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  optionIcon: {
+    marginRight: SPACING.m,
+  },
+  optionText: {
+    fontSize: FONTS.body1,
+    color: COLORS.white,
+  },
+  bottomSection: {
+    marginTop: 'auto',
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.primary,
+    padding: SPACING.m,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.m,
+  },
+  buttonIcon: {
+    marginRight: SPACING.s,
+  },
+  signOutText: {
+    color: COLORS.white,
+    fontSize: FONTS.body1,
+    fontWeight: 'bold',
   },
   stepTitle: {
     fontSize: FONTS.h4,

@@ -1,207 +1,259 @@
--- Fix issues with messages table and real-time functionality
+-- Constellation App Database Fixes
+-- This script addresses various issues with the database structure, RLS policies,
+-- real-time publication, and performance optimizations.
 
 -- 1. Ensure messages table has the correct structure
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT FROM information_schema.tables 
-    WHERE table_schema = 'public' 
-    AND table_name = 'messages'
-  ) THEN
-    CREATE TABLE public.messages (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      constellation_id UUID NOT NULL REFERENCES public.constellations(id) ON DELETE CASCADE,
-      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-      content TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-  END IF;
-END
-$$;
-
--- 2. Add index for better performance
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes 
-    WHERE tablename = 'messages' 
-    AND indexname = 'messages_constellation_id_idx'
-  ) THEN
-    CREATE INDEX messages_constellation_id_idx ON public.messages(constellation_id);
-  END IF;
-END
-$$;
-
--- 3. Enable Row Level Security
-ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
-
--- 4. Create or replace RLS policies
-DROP POLICY IF EXISTS "Users can view messages in their constellation" ON public.messages;
-CREATE POLICY "Users can view messages in their constellation" ON public.messages
-  FOR SELECT
-  USING (
-    auth.uid() IN (
-      SELECT user_id FROM public.constellation_members 
-      WHERE constellation_id = messages.constellation_id
-    )
-  );
-
-DROP POLICY IF EXISTS "Users can insert messages in their constellation" ON public.messages;
-CREATE POLICY "Users can insert messages in their constellation" ON public.messages
-  FOR INSERT
-  WITH CHECK (
-    auth.uid() = user_id AND
-    auth.uid() IN (
-      SELECT user_id FROM public.constellation_members 
-      WHERE constellation_id = messages.constellation_id
-    )
-  );
-
-DROP POLICY IF EXISTS "Users can update their own messages" ON public.messages;
-CREATE POLICY "Users can update their own messages" ON public.messages
-  FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users can delete their own messages" ON public.messages;
-CREATE POLICY "Users can delete their own messages" ON public.messages
-  FOR DELETE
-  USING (auth.uid() = user_id);
-
--- 5. Ensure the messages table is included in the real-time publication
-DO $$
-BEGIN
-  -- Check if the publication exists
-  IF EXISTS (
-    SELECT FROM pg_publication WHERE pubname = 'supabase_realtime'
-  ) THEN
-    -- Add messages table to the publication if it's not already included
-    IF NOT EXISTS (
-      SELECT FROM pg_publication_tables 
-      WHERE pubname = 'supabase_realtime' 
-      AND tablename = 'messages'
-    ) THEN
-      ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+    -- Check if messages table exists
+    IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'messages') THEN
+        CREATE TABLE public.messages (
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            constellation_id UUID NOT NULL REFERENCES public.constellations(id) ON DELETE CASCADE,
+            user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+            content TEXT,
+            image_url TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        
+        RAISE NOTICE 'Created messages table';
+    ELSE
+        RAISE NOTICE 'Messages table already exists';
     END IF;
-  ELSE
-    -- Create the publication if it doesn't exist
-    CREATE PUBLICATION supabase_realtime FOR TABLE public.messages;
-  END IF;
-END
+    
+    -- Ensure all required columns exist
+    IF NOT EXISTS (SELECT FROM information_schema.columns 
+                  WHERE table_schema = 'public' AND table_name = 'messages' AND column_name = 'image_url') THEN
+        ALTER TABLE public.messages ADD COLUMN image_url TEXT;
+        RAISE NOTICE 'Added image_url column to messages table';
+    END IF;
+    
+    IF NOT EXISTS (SELECT FROM information_schema.columns 
+                  WHERE table_schema = 'public' AND table_name = 'messages' AND column_name = 'updated_at') THEN
+        ALTER TABLE public.messages ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+        RAISE NOTICE 'Added updated_at column to messages table';
+    END IF;
+END $$;
+
+-- 2. Fix Row Level Security (RLS) policies for messages table
+DO $$
+BEGIN
+    -- Enable RLS on messages table
+    ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+    
+    -- Drop existing policies if they exist
+    DROP POLICY IF EXISTS "Users can view messages in their constellations" ON public.messages;
+    DROP POLICY IF EXISTS "Users can insert messages in their constellations" ON public.messages;
+    DROP POLICY IF EXISTS "Users can update their own messages" ON public.messages;
+    DROP POLICY IF EXISTS "Users can delete their own messages" ON public.messages;
+    
+    -- Create new policies
+    CREATE POLICY "Users can view messages in their constellations" 
+    ON public.messages FOR SELECT 
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.constellation_members cm 
+            WHERE cm.constellation_id = messages.constellation_id 
+            AND cm.user_id = auth.uid()
+        )
+    );
+    
+    CREATE POLICY "Users can insert messages in their constellations" 
+    ON public.messages FOR INSERT 
+    WITH CHECK (
+        auth.uid() = user_id AND
+        EXISTS (
+            SELECT 1 FROM public.constellation_members cm 
+            WHERE cm.constellation_id = messages.constellation_id 
+            AND cm.user_id = auth.uid()
+        )
+    );
+    
+    CREATE POLICY "Users can update their own messages" 
+    ON public.messages FOR UPDATE 
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+    
+    CREATE POLICY "Users can delete their own messages" 
+    ON public.messages FOR DELETE 
+    USING (auth.uid() = user_id);
+    
+    RAISE NOTICE 'RLS policies for messages table have been updated';
+END $$;
+
+-- 3. Add messages table to real-time publication
+DO $$
+BEGIN
+    -- Check if the realtime publication exists
+    IF NOT EXISTS (SELECT FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        CREATE PUBLICATION supabase_realtime;
+        RAISE NOTICE 'Created supabase_realtime publication';
+    END IF;
+    
+    -- Add messages table to the publication if not already added
+    IF NOT EXISTS (
+        SELECT FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND schemaname = 'public' 
+        AND tablename = 'messages'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+        RAISE NOTICE 'Added messages table to supabase_realtime publication';
+    ELSE
+        RAISE NOTICE 'Messages table already in supabase_realtime publication';
+    END IF;
+END $$;
+
+-- 4. Create indexes for better performance
+DO $$
+BEGIN
+    -- Create index on constellation_id for faster message retrieval
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE schemaname = 'public' 
+        AND tablename = 'messages' 
+        AND indexname = 'idx_messages_constellation_id'
+    ) THEN
+        CREATE INDEX idx_messages_constellation_id ON public.messages(constellation_id);
+        RAISE NOTICE 'Created index on messages.constellation_id';
+    END IF;
+    
+    -- Create index on user_id for faster user message retrieval
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE schemaname = 'public' 
+        AND tablename = 'messages' 
+        AND indexname = 'idx_messages_user_id'
+    ) THEN
+        CREATE INDEX idx_messages_user_id ON public.messages(user_id);
+        RAISE NOTICE 'Created index on messages.user_id';
+    END IF;
+    
+    -- Create index on created_at for faster chronological retrieval
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE schemaname = 'public' 
+        AND tablename = 'messages' 
+        AND indexname = 'idx_messages_created_at'
+    ) THEN
+        CREATE INDEX idx_messages_created_at ON public.messages(created_at);
+        RAISE NOTICE 'Created index on messages.created_at';
+    END IF;
+END $$;
+
+-- 5. Create function to get partner profile in a constellation
+CREATE OR REPLACE FUNCTION public.get_partner_profile(constellation_id_param UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    partner_profile JSONB;
+BEGIN
+    SELECT 
+        jsonb_build_object(
+            'id', p.id,
+            'user_id', p.user_id,
+            'name', p.name,
+            'bio', p.bio,
+            'avatar_url', p.avatar_url,
+            'star_type', cm.star_type
+        ) INTO partner_profile
+    FROM 
+        constellation_members cm
+    JOIN 
+        profiles p ON cm.user_id = p.user_id
+    WHERE 
+        cm.constellation_id = constellation_id_param
+        AND cm.user_id != auth.uid();
+    
+    RETURN partner_profile;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Error getting partner profile: %', SQLERRM;
+END;
 $$;
 
--- 6. Create or replace function to get messages for a constellation
-CREATE OR REPLACE FUNCTION public.get_constellation_messages(constellation_id_param UUID)
-RETURNS TABLE (
-  id UUID,
-  constellation_id UUID,
-  user_id UUID,
-  content TEXT,
-  created_at TIMESTAMPTZ,
-  sender_name TEXT
-) AS $$
-BEGIN
-  -- Check if the user is a member of the constellation
-  IF NOT EXISTS (
-    SELECT 1 FROM public.constellation_members 
-    WHERE constellation_id = constellation_id_param 
-    AND user_id = auth.uid()
-  ) THEN
-    RAISE EXCEPTION 'User is not a member of this constellation';
-  END IF;
-
-  RETURN QUERY
-  SELECT 
-    m.id,
-    m.constellation_id,
-    m.user_id,
-    m.content,
-    m.created_at,
-    p.name AS sender_name
-  FROM 
-    public.messages m
-    JOIN public.profiles p ON m.user_id = p.id
-  WHERE 
-    m.constellation_id = constellation_id_param
-  ORDER BY 
-    m.created_at ASC;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 7. Create or replace function to send a message
-CREATE OR REPLACE FUNCTION public.send_message(
-  constellation_id_param UUID,
-  content_param TEXT
-)
-RETURNS JSON AS $$
+-- 6. Create function to increase bonding strength
+CREATE OR REPLACE FUNCTION public.increase_bonding_strength(constellation_id_param UUID, amount INT DEFAULT 1)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
-  new_message_id UUID;
+    current_strength INT;
 BEGIN
-  -- Check if the user is authenticated
-  IF auth.uid() IS NULL THEN
-    RETURN json_build_object(
-      'success', false,
-      'error', 'User is not authenticated'
-    );
-  END IF;
-
-  -- Check if the user is a member of the constellation
-  IF NOT EXISTS (
-    SELECT 1 FROM public.constellation_members 
-    WHERE constellation_id = constellation_id_param 
-    AND user_id = auth.uid()
-  ) THEN
-    RETURN json_build_object(
-      'success', false,
-      'error', 'User is not a member of this constellation'
-    );
-  END IF;
-
-  -- Insert the message
-  INSERT INTO public.messages (
-    constellation_id,
-    user_id,
-    content
-  ) VALUES (
-    constellation_id_param,
-    auth.uid(),
-    content_param
-  )
-  RETURNING id INTO new_message_id;
-
-  -- Return success
-  RETURN json_build_object(
-    'success', true,
-    'message_id', new_message_id
-  );
+    -- Get current bonding strength
+    SELECT bonding_strength INTO current_strength
+    FROM constellations
+    WHERE id = constellation_id_param;
+    
+    -- Update bonding strength, ensuring it doesn't exceed 100
+    UPDATE constellations
+    SET bonding_strength = LEAST(100, current_strength + amount)
+    WHERE id = constellation_id_param;
+    
+    RETURN FOUND;
 EXCEPTION
-  WHEN OTHERS THEN
-    RETURN json_build_object(
-      'success', false,
-      'error', SQLERRM
-    );
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Error increasing bonding strength: %', SQLERRM;
+        RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
--- 8. Create a trigger to update the updated_at field
-CREATE OR REPLACE FUNCTION public.update_updated_at_column()
-RETURNS TRIGGER AS $$
+-- 7. Ensure constellation_members table has star_type column
+DO $$
 BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+    IF NOT EXISTS (SELECT FROM information_schema.columns 
+                  WHERE table_schema = 'public' AND table_name = 'constellation_members' AND column_name = 'star_type') THEN
+        ALTER TABLE public.constellation_members ADD COLUMN star_type TEXT;
+        RAISE NOTICE 'Added star_type column to constellation_members table';
+        
+        -- Update existing records to set star_type based on join order
+        WITH constellation_creators AS (
+            SELECT DISTINCT ON (constellation_id) 
+                constellation_id, 
+                user_id,
+                created_at
+            FROM 
+                constellation_members
+            ORDER BY 
+                constellation_id, created_at ASC
+        )
+        UPDATE constellation_members cm
+        SET star_type = CASE 
+                          WHEN cc.user_id = cm.user_id THEN 'luminary'
+                          ELSE 'navigator'
+                        END
+        FROM constellation_creators cc
+        WHERE cm.constellation_id = cc.constellation_id;
+        
+        RAISE NOTICE 'Updated star_type values for existing constellation members';
+    END IF;
+END $$;
 
--- Drop the trigger if it exists
-DROP TRIGGER IF EXISTS update_messages_updated_at ON public.messages;
+-- 8. Ensure profiles table has all required columns
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM information_schema.columns 
+                  WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'bio') THEN
+        ALTER TABLE public.profiles ADD COLUMN bio TEXT;
+        RAISE NOTICE 'Added bio column to profiles table';
+    END IF;
+    
+    IF NOT EXISTS (SELECT FROM information_schema.columns 
+                  WHERE table_schema = 'public' AND table_name = 'profiles' AND column_name = 'avatar_url') THEN
+        ALTER TABLE public.profiles ADD COLUMN avatar_url TEXT;
+        RAISE NOTICE 'Added avatar_url column to profiles table';
+    END IF;
+END $$;
 
--- Create the trigger
-CREATE TRIGGER update_messages_updated_at
-BEFORE UPDATE ON public.messages
-FOR EACH ROW
-EXECUTE FUNCTION public.update_updated_at_column();
+-- 9. Create storage bucket for chat images if it doesn't exist
+-- Note: This requires manual action in the Supabase dashboard
+-- Please create a storage bucket named 'chat_images' with appropriate permissions
 
--- 9. Grant necessary permissions
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.messages TO authenticated;
-GRANT USAGE, SELECT ON SEQUENCE public.messages_id_seq TO authenticated; 
+RAISE NOTICE 'Database fixes completed successfully';
+RAISE NOTICE 'Please manually create a storage bucket named "chat_images" in the Supabase dashboard if it does not exist'; 

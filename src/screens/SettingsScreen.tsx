@@ -12,9 +12,9 @@ import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
-import { signOut, supabase } from '../services/supabase';
+import { supabase } from '../utils/supabase';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth } from '../provider/AuthProvider';
 
 type SettingsScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'>;
@@ -22,32 +22,7 @@ type SettingsScreenProps = {
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth();
-
-  const handleSignOut = async () => {
-    try {
-      setLoading(true);
-      const { error } = await signOut();
-      if (error) throw error;
-      
-      // Use a timeout to ensure the signOut process completes
-      setTimeout(() => {
-        // Reset navigation to Welcome screen
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Welcome' }],
-        });
-      }, 500);
-    } catch (error: any) {
-      console.error('Sign out error:', error);
-      Alert.alert(
-        'Sign Out Error', 
-        'Failed to sign out. Please try again. If the problem persists, restart the app.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { user, signOut } = useAuth();
 
   const handleDeleteAccount = () => {
     Alert.alert(
@@ -192,7 +167,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         <View style={styles.bottomSection}>
           <TouchableOpacity
             style={styles.signOutButton}
-            onPress={handleSignOut}
+            onPress={() => {
+              setLoading(true);
+              signOut(navigation)
+                .catch(error => {
+                  console.error('Error during sign out:', error);
+                  Alert.alert('Error', 'Failed to sign out. Please try again.');
+                })
+                .finally(() => setLoading(false));
+            }}
           >
             <Ionicons name="log-out-outline" size={20} color={COLORS.white} style={styles.buttonIcon} />
             <Text style={styles.signOutText}>Sign Out</Text>

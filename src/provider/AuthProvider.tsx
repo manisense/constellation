@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { supabase, getUserConstellationStatus, shouldShowHomeScreen } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert } from 'react-native';
+import { NavigationProp } from '@react-navigation/native';
 
 type AuthContextType = {
   user: User | null;
@@ -10,6 +11,7 @@ type AuthContextType = {
   userStatus: 'no_constellation' | 'waiting_for_partner' | 'quiz_needed' | 'complete' | null;
   inviteCode: string | null;
   refreshUserStatus: () => Promise<void>;
+  signOut: (navigation: NavigationProp<any>) => Promise<void>;
 };
 
 export const AuthContext = createContext<AuthContextType>({
@@ -19,6 +21,7 @@ export const AuthContext = createContext<AuthContextType>({
   userStatus: null,
   inviteCode: null,
   refreshUserStatus: async () => {},
+  signOut: async () => {},
 });
 
 // Export the useAuth hook directly from this file
@@ -83,6 +86,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (error) {
       console.error('Error refreshing user status:', error);
+    }
+  };
+
+  // Improved sign-out function with proper navigation handling
+  const signOut = async (navigation: NavigationProp<any>) => {
+    try {
+      console.log('Signing out...');
+      
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      
+      // Clear local state
+      setUser(null);
+      setSession(null);
+      setUserStatus(null);
+      setInviteCode(null);
+      
+      console.log('Sign out successful, preparing to navigate...');
+      
+      // Add delay to ensure sign-out completes before navigation
+      setTimeout(() => {
+        // Reset navigation stack to Welcome screen
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Welcome' }],
+        });
+        console.log('Navigation reset completed');
+      }, 500); // 500ms delay
+    } catch (error) {
+      console.error('Error signing out:', error);
+      Alert.alert('Error', 'Failed to sign out. Please try again.');
     }
   };
 
@@ -229,6 +263,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         userStatus,
         inviteCode,
         refreshUserStatus,
+        signOut,
       }}
     >
       {children}
