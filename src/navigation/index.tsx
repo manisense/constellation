@@ -26,6 +26,10 @@ import ChatScreen from '../screens/ChatScreen';
 import ConstellationViewScreen from '../screens/ConstellationViewScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 
+// New Feature Screens
+import DatePlansScreen from '../screens/DatePlansScreen';
+import MemoriesScreen from '../screens/MemoriesScreen';
+
 // Create navigators
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator();
@@ -159,6 +163,8 @@ const AppStack = () => {
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="Quiz" component={QuizScreen} />
       <Stack.Screen name="StarReveal" component={StarRevealScreen} />
+      <Stack.Screen name="DatePlans" component={DatePlansScreen} />
+      <Stack.Screen name="Memories" component={MemoriesScreen} />
     </Stack.Navigator>
   );
 };

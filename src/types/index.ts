@@ -95,6 +95,9 @@ export type RootStackParamList = {
   PhoneAuth: {
     constellationId?: string;
   };
+  // New screens
+  DatePlans: undefined;
+  Memories: undefined;
   // Tab navigator screens
   HomeTab: undefined;
   ChatTab: undefined;

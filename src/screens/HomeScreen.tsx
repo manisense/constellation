@@ -9,6 +9,7 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  ImageBackground,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
@@ -17,28 +18,26 @@ import Screen from '../components/Screen';
 import Card, { TouchableCard } from '../components/Card';
 import { supabase } from '../utils/supabase';
 import { StarType } from '../types';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../hooks/useAuth';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
 };
 
-interface DailyActivity {
+interface Activity {
   id: string;
   title: string;
-  description: string;
-  type: 'quiz' | 'chat' | 'activity';
-  completed: boolean;
+  icon: React.ReactNode;
+  screen: keyof RootStackParamList;
 }
 
-interface Message {
+interface RecentActivity {
   id: string;
-  content: string;
-  user_id: string;
-  created_at: string;
-  sender_name?: string;
-  profiles?: { name: string };
+  type: 'quiz' | 'chat' | 'memory' | 'date';
+  title: string;
+  timestamp: string;
+  icon: React.ReactNode;
 }
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
@@ -49,17 +48,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [bondingStrength, setBondingStrength] = useState(0);
   const [userStarType, setUserStarType] = useState<StarType | null>(null);
   const [partnerStarType, setPartnerStarType] = useState<StarType | null>(null);
-  const [dailyActivities, setDailyActivities] = useState<DailyActivity[]>([]);
-  const [recentMessages, setRecentMessages] = useState<Message[]>([]);
+  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(true);
+  const [constellationId, setConstellationId] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
       loadUserData();
-      generateDailyActivities();
+      loadRecentActivities();
     } else {
       navigation.reset({
         index: 0,
@@ -91,7 +89,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       if (userError) throw userError;
       
       setUserName(userData.name || 'User');
-      setUserStarType(userData.starType || null);
+      setUserStarType(userData.star_type || null);
 
       // Get user's constellation membership
       const { data: memberData, error: memberError } = await supabase
@@ -110,6 +108,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       }
 
       if (memberData && memberData.constellation_id) {
+        setConstellationId(memberData.constellation_id);
+        
         // Get constellation data
         const { data: constellationData, error: constellationError } = await supabase
           .from('constellations')
@@ -143,65 +143,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             
           if (!partnerError && partnerData) {
             setPartnerName(partnerData.name || 'Partner');
-            setPartnerStarType(partnerData.starType || null);
+            setPartnerStarType(partnerData.star_type || null);
           }
         }
-
-        // Get recent messages
-        const { data: messages, error: messagesError } = await supabase
-          .from('messages')
-          .select(`
-            id,
-            content,
-            user_id,
-            created_at,
-            profiles(name)
-          `)
-          .eq('constellation_id', memberData.constellation_id)
-          .order('created_at', { ascending: false })
-          .limit(5);
-        
-        if (!messagesError && messages) {
-          const formattedMessages = messages.map((msg: any) => ({
-            id: msg.id,
-            content: msg.content,
-            user_id: msg.user_id,
-            created_at: msg.created_at,
-            sender_name: msg.profiles?.name || 'Unknown'
-          }));
-          setRecentMessages(formattedMessages);
-        }
-        
-        // Subscribe to new messages
-        const newSubscription = supabase
-          .channel(`messages:constellation_id=eq.${memberData.constellation_id}`)
-          .on('postgres_changes', { 
-            event: 'INSERT', 
-            schema: 'public', 
-            table: 'messages',
-            filter: `constellation_id=eq.${memberData.constellation_id}`
-          }, async (payload) => {
-            // Get sender name
-            const { data: senderData } = await supabase
-              .from('profiles')
-              .select('name')
-              .eq('id', payload.new.user_id)
-              .single();
-            
-            // Add new message to the list
-            const newMessage = {
-              ...payload.new,
-              sender_name: senderData?.name || 'Unknown'
-            } as Message;
-            
-            setRecentMessages(prevMessages => {
-              const updatedMessages = [newMessage, ...prevMessages];
-              return updatedMessages.slice(0, 5); // Keep only the 5 most recent
-            });
-          })
-          .subscribe();
-        
-        setSubscription(newSubscription);
       }
       
       setLoading(false);
@@ -212,158 +156,160 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     }
   };
 
-  const generateDailyActivities = () => {
-    // This would ideally come from the server, but for now we'll generate some sample activities
-    const activities: DailyActivity[] = [
-      {
-        id: '1',
-        title: 'Daily Connection Quiz',
-        description: 'Take today\'s quiz to strengthen your bond',
-        type: 'quiz',
-        completed: false,
-      },
-      {
-        id: '2',
-        title: 'Send a Message',
-        description: 'Share something meaningful with your partner',
-        type: 'chat',
-        completed: false,
-      },
-      {
-        id: '3',
-        title: 'Relationship Reflection',
-        description: 'Reflect on a special memory together',
-        type: 'activity',
-        completed: false,
-      },
-    ];
+  const loadRecentActivities = async () => {
+    try {
+      // This would ideally come from the server, but for now we'll generate some sample activities
+      const activities: RecentActivity[] = [
+        {
+          id: '1',
+          type: 'quiz',
+          title: 'Completed daily love quiz',
+          timestamp: '2 hours ago',
+          icon: <FontAwesome5 name="heart" size={20} color={COLORS.white} />
+        },
+        {
+          id: '2',
+          type: 'memory',
+          title: 'Added new memory: "Stargazing Date"',
+          timestamp: 'Yesterday',
+          icon: <FontAwesome5 name="star" size={20} color={COLORS.white} />
+        }
+      ];
 
-    setDailyActivities(activities);
+      setRecentActivities(activities);
+    } catch (error) {
+      console.error('Error loading recent activities:', error);
+    }
   };
 
-  const handleActivityPress = (activity: DailyActivity) => {
-    switch (activity.type) {
-      case 'quiz':
+  const handleActivityPress = (activity: Activity) => {
+    // Use explicit navigation based on activity type
+    switch (activity.title) {
+      case 'Love Quiz':
         navigation.navigate('Quiz');
         break;
-      case 'chat':
+      case 'Chat Room':
         navigation.navigate('Chat');
         break;
-      case 'activity':
-        Alert.alert('Activity', 'This feature is coming soon!');
+      case 'Date Plans':
+        navigation.navigate('DatePlans');
         break;
+      case 'Memories':
+        navigation.navigate('Memories');
+        break;
+      default:
+        console.warn(`Unknown activity: ${activity.title}`);
     }
   };
 
   const renderConstellationCard = () => {
     return (
-      <Card style={styles.constellationCard}>
-        <View style={styles.constellationHeader}>
-          <Text style={styles.constellationName}>{constellationName}</Text>
-          <TouchableOpacity 
-            style={styles.viewButton}
-            onPress={() => navigation.navigate('ConstellationView')}
-          >
-            <Text style={styles.viewButtonText}>View</Text>
-          </TouchableOpacity>
+      <ImageBackground
+        source={require('../assets/images/constellation-bg.jpg')}
+        style={styles.constellationBackground}
+        resizeMode="cover"
+      >
+        <View style={styles.constellationContent}>
+          <Text style={styles.constellationTitle}>Your Constellation</Text>
+          <Text style={styles.constellationSubtitle}>Connected with {partnerName}</Text>
         </View>
-        
-        <View style={styles.starsContainer}>
-          <View style={styles.starCard}>
-            <Image 
-              source={
-                userStarType === StarType.LUMINARY 
-                  ? require('../assets/images/luminary-star.png')
-                  : require('../assets/images/navigator-star.png')
-              }
-              style={styles.starImage}
-              resizeMode="contain"
-            />
-            <Text style={styles.starName}>{userName}</Text>
-          </View>
-          
-          <View style={styles.connectionLine} />
-          
-          <View style={styles.starCard}>
-            <Image 
-              source={
-                partnerStarType === StarType.LUMINARY 
-                  ? require('../assets/images/luminary-star.png')
-                  : require('../assets/images/navigator-star.png')
-              }
-              style={styles.starImage}
-              resizeMode="contain"
-            />
-            <Text style={styles.starName}>{partnerName}</Text>
+      </ImageBackground>
+    );
+  };
+
+  const renderDailyActivities = () => {
+    const activities: Activity[] = [
+      {
+        id: '1',
+        title: 'Love Quiz',
+        icon: <FontAwesome5 name="heart" size={24} color={COLORS.white} />,
+        screen: 'Quiz'
+      },
+      {
+        id: '2',
+        title: 'Chat Room',
+        icon: <Ionicons name="chatbubble-outline" size={24} color={COLORS.white} />,
+        screen: 'Chat'
+      },
+      {
+        id: '3',
+        title: 'Date Plans',
+        icon: <FontAwesome5 name="calendar-alt" size={24} color={COLORS.white} />,
+        screen: 'DatePlans'
+      },
+      {
+        id: '4',
+        title: 'Memories',
+        icon: <MaterialIcons name="star-outline" size={24} color={COLORS.white} />,
+        screen: 'Memories'
+      }
+    ];
+
+    return (
+      <View style={styles.activitiesContainer}>
+        <Text style={styles.sectionTitle}>Daily Activities</Text>
+        <View style={styles.activitiesGrid}>
+          {activities.map((activity) => (
+            <TouchableOpacity
+              key={activity.id}
+              style={styles.activityCard}
+              onPress={() => handleActivityPress(activity)}
+            >
+              <View style={styles.activityIconContainer}>
+                {activity.icon}
+              </View>
+              <Text style={styles.activityTitle}>{activity.title}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  const renderConnectionStrength = () => {
+    return (
+      <Card style={styles.connectionCard}>
+        <View style={styles.connectionHeader}>
+          <Text style={styles.connectionTitle}>Connection Strength</Text>
+          <View style={styles.connectionIconContainer}>
+            <FontAwesome5 name="heart" size={24} color={COLORS.white} />
           </View>
         </View>
-        
-        <View style={styles.bondingContainer}>
-          <Text style={styles.bondingText}>Bonding Strength: {bondingStrength}%</Text>
-          <View style={styles.bondingBar}>
-            <View 
-              style={[
-                styles.bondingProgress, 
-                { width: `${bondingStrength}%` }
-              ]} 
-            />
-          </View>
+        <Text style={styles.connectionPercentage}>{bondingStrength}% Aligned</Text>
+        <View style={styles.progressBarContainer}>
+          <View 
+            style={[
+              styles.progressBar, 
+              { width: `${bondingStrength}%` }
+            ]} 
+          />
         </View>
       </Card>
     );
   };
 
-  const renderActivityItem = ({ item }: { item: DailyActivity }) => {
+  const renderRecentActivities = () => {
     return (
-      <TouchableCard 
-        style={styles.activityCard}
-        onPress={() => handleActivityPress(item)}
-      >
-        <View style={styles.activityContent}>
-          <View style={styles.activityIconContainer}>
-            {item.type === 'quiz' && (
-              <Ionicons name="help-circle-outline" size={24} color={COLORS.primary} />
-            )}
-            {item.type === 'chat' && (
-              <Ionicons name="chatbubble-outline" size={24} color={COLORS.primary} />
-            )}
-            {item.type === 'activity' && (
-              <Ionicons name="heart-outline" size={24} color={COLORS.primary} />
-            )}
-          </View>
-          <View style={styles.activityTextContainer}>
-            <Text style={styles.activityTitle}>{item.title}</Text>
-            <Text style={styles.activityDescription}>{item.description}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={COLORS.gray500} />
-        </View>
-      </TouchableCard>
-    );
-  };
-
-  const renderMessageItem = ({ item }: { item: Message }) => {
-    const isCurrentUser = item.user_id === user?.id;
-    const displayName = isCurrentUser ? 'You' : (item.sender_name || 'Partner');
-    
-    return (
-      <View style={styles.messageItem}>
-        <View style={styles.messageHeader}>
-          <Text style={styles.messageSender}>{displayName}</Text>
-          <Text style={styles.messageTime}>
-            {new Date(item.created_at).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </Text>
-        </View>
-        <Text style={styles.messageText}>{item.content}</Text>
+      <View style={styles.recentActivitiesContainer}>
+        <Text style={styles.sectionTitle}>Recent Activities</Text>
+        {recentActivities.map((activity) => (
+          <Card key={activity.id} style={styles.recentActivityCard}>
+            <View style={styles.recentActivityIconContainer}>
+              {activity.icon}
+            </View>
+            <View style={styles.recentActivityContent}>
+              <Text style={styles.recentActivityTitle}>{activity.title}</Text>
+              <Text style={styles.recentActivityTime}>{activity.timestamp}</Text>
+            </View>
+          </Card>
+        ))}
       </View>
     );
   };
 
   if (loading) {
     return (
-      <Screen showHeader={true} headerTitle="Home">
+      <Screen showHeader={true} headerTitle="Constellation">
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
         </View>
@@ -372,7 +318,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }
 
   return (
-    <Screen showHeader={true} headerTitle="Home">
+    <Screen showHeader={true} headerTitle="Constellation">
       <ScrollView style={styles.container}>
         {error && (
           <View style={styles.errorContainer}>
@@ -381,48 +327,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         )}
         
         {renderConstellationCard()}
-        
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Daily Activities</Text>
-          <FlatList
-            data={dailyActivities}
-            renderItem={renderActivityItem}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-          />
-        </View>
-        
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Messages</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Chat')}>
-              <Text style={styles.viewAllText}>View All</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {recentMessages.length > 0 ? (
-            <Card style={styles.messagesCard}>
-              <FlatList
-                data={recentMessages}
-                renderItem={renderMessageItem}
-                keyExtractor={(item) => item.id}
-                scrollEnabled={false}
-              />
-            </Card>
-          ) : (
-            <Card style={styles.emptyMessagesCard}>
-              <Text style={styles.emptyMessagesText}>
-                No messages yet. Start a conversation with your partner!
-              </Text>
-              <TouchableOpacity
-                style={styles.startChatButton}
-                onPress={() => navigation.navigate('Chat')}
-              >
-                <Text style={styles.startChatButtonText}>Start Chat</Text>
-              </TouchableOpacity>
-            </Card>
-          )}
-        </View>
+        {renderDailyActivities()}
+        {renderConnectionStrength()}
+        {renderRecentActivities()}
       </ScrollView>
     </Screen>
   );
@@ -431,7 +338,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: SPACING.l,
+    backgroundColor: COLORS.background,
   },
   loadingContainer: {
     flex: 1,
@@ -442,111 +349,121 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.error,
     padding: SPACING.m,
     borderRadius: 8,
-    marginBottom: SPACING.m,
+    marginHorizontal: SPACING.l,
+    marginTop: SPACING.m,
   },
   errorText: {
     color: COLORS.white,
     fontSize: FONTS.body2,
     textAlign: 'center',
   },
-  constellationCard: {
-    marginBottom: SPACING.l,
-    padding: SPACING.m,
+  constellationBackground: {
+    width: '100%',
+    height: 200,
+    justifyContent: 'flex-end',
   },
-  constellationHeader: {
+  constellationContent: {
+    padding: SPACING.l,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  constellationTitle: {
+    fontSize: FONTS.h2,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    marginBottom: SPACING.xs,
+  },
+  constellationSubtitle: {
+    fontSize: FONTS.body1,
+    color: COLORS.white,
+  },
+  activitiesContainer: {
+    padding: SPACING.l,
+  },
+  sectionTitle: {
+    fontSize: FONTS.h3,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    marginBottom: SPACING.m,
+  },
+  activitiesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  activityCard: {
+    width: '48%',
+    backgroundColor: COLORS.card,
+    borderRadius: SIZES.borderRadius,
+    padding: SPACING.l,
+    marginBottom: SPACING.m,
+    alignItems: 'center',
+  },
+  activityIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: COLORS.gray800,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.m,
+  },
+  activityTitle: {
+    fontSize: FONTS.body1,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    textAlign: 'center',
+  },
+  connectionCard: {
+    marginHorizontal: SPACING.l,
+    marginBottom: SPACING.l,
+    padding: SPACING.l,
+  },
+  connectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.m,
   },
-  constellationName: {
+  connectionTitle: {
     fontSize: FONTS.h3,
     fontWeight: 'bold',
     color: COLORS.white,
   },
-  viewButton: {
+  connectionIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.m,
-    paddingVertical: SPACING.xs,
-    borderRadius: 16,
-  },
-  viewButtonText: {
-    color: COLORS.white,
-    fontSize: FONTS.caption,
-    fontWeight: 'bold',
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  connectionPercentage: {
+    fontSize: FONTS.body1,
+    color: COLORS.gray300,
     marginBottom: SPACING.m,
   },
-  starCard: {
-    alignItems: 'center',
-    width: '40%',
-  },
-  starImage: {
-    width: 60,
-    height: 60,
-    marginBottom: SPACING.s,
-  },
-  starName: {
-    fontSize: FONTS.body2,
-    color: COLORS.white,
-    textAlign: 'center',
-  },
-  connectionLine: {
-    height: 2,
-    backgroundColor: COLORS.accent,
-    width: '15%',
-  },
-  bondingContainer: {
-    alignItems: 'center',
-  },
-  bondingText: {
-    fontSize: FONTS.body2,
-    color: COLORS.gray300,
-    marginBottom: SPACING.s,
-  },
-  bondingBar: {
+  progressBarContainer: {
     width: '100%',
-    height: 6,
+    height: 8,
     backgroundColor: COLORS.gray700,
-    borderRadius: 3,
+    borderRadius: 4,
     overflow: 'hidden',
   },
-  bondingProgress: {
+  progressBar: {
     height: '100%',
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.primary,
   },
-  section: {
-    marginBottom: SPACING.l,
+  recentActivitiesContainer: {
+    padding: SPACING.l,
+    paddingTop: 0,
   },
-  sectionHeader: {
+  recentActivityCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: SPACING.m,
-  },
-  sectionTitle: {
-    fontSize: FONTS.h4,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginBottom: SPACING.m,
-  },
-  viewAllText: {
-    color: COLORS.primary,
-    fontSize: FONTS.body2,
-  },
-  activityCard: {
-    marginBottom: SPACING.m,
     padding: SPACING.m,
+    marginBottom: SPACING.m,
   },
-  activityContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  activityIconContainer: {
+  recentActivityIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -555,66 +472,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: SPACING.m,
   },
-  activityTextContainer: {
+  recentActivityContent: {
     flex: 1,
   },
-  activityTitle: {
-    fontSize: FONTS.body1,
+  recentActivityTitle: {
+    fontSize: FONTS.body2,
     fontWeight: 'bold',
     color: COLORS.white,
     marginBottom: SPACING.xs,
   },
-  activityDescription: {
-    fontSize: FONTS.body2,
-    color: COLORS.gray300,
-  },
-  messagesCard: {
-    padding: SPACING.m,
-  },
-  messageItem: {
-    marginBottom: SPACING.m,
-    paddingBottom: SPACING.m,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray700,
-  },
-  messageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.xs,
-  },
-  messageSender: {
-    fontSize: FONTS.body2,
-    fontWeight: 'bold',
-    color: COLORS.white,
-  },
-  messageTime: {
+  recentActivityTime: {
     fontSize: FONTS.caption,
     color: COLORS.gray500,
-  },
-  messageText: {
-    fontSize: FONTS.body2,
-    color: COLORS.gray300,
-  },
-  emptyMessagesCard: {
-    padding: SPACING.l,
-    alignItems: 'center',
-  },
-  emptyMessagesText: {
-    fontSize: FONTS.body2,
-    color: COLORS.gray300,
-    textAlign: 'center',
-    marginBottom: SPACING.m,
-  },
-  startChatButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.l,
-    paddingVertical: SPACING.m,
-    borderRadius: 8,
-  },
-  startChatButtonText: {
-    color: COLORS.white,
-    fontSize: FONTS.body2,
-    fontWeight: 'bold',
   },
 });
 
