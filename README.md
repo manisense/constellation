@@ -1,187 +1,109 @@
-# Constellation App with Supabase Authentication
+# Constellation
 
-This is a React Native Expo app that uses Supabase for authentication and data storage. The app allows users to create and join "constellations" - a metaphor for connections between people.
+Constellation is a relationship-focused React Native app where two users form a shared "constellation" and build connection through chat, memories, date plans, and quiz-driven star archetypes.
 
-## Features
+## Project Idea
 
-- Email/Password Authentication
-- User Profile Management
-- Create and Join Constellations
-- Real-time Chat
-- Quiz and Star Type Assignment
+The core product idea is: **turn relationship habits into a shared, visual progression system**.
 
-## Setup Instructions
+- Two users connect through an invite code.
+- They unlock a shared space (chat + activities).
+- Their constellation evolves as they interact.
+- Personality/quiz outcomes (Luminary/Navigator) personalize the experience.
 
-### 1. Supabase Setup
+## Current Product Understanding
 
-1. Create a Supabase account at [supabase.com](https://supabase.com)
-2. Create a new project
-3. Get your Supabase URL and anon key from the project settings
-4. Update the `src/utils/supabase.ts` file with your Supabase URL and anon key
+The app is structured around 4 lifecycle states returned by backend status RPCs:
 
-### 2. Database Setup
+- `no_constellation`: user signed in but not connected.
+- `waiting_for_partner`: user created constellation and is waiting.
+- `quiz_needed`: both users connected, quiz flow required.
+- `complete`: full app flow unlocked.
 
-Run `final_supabase_setup.sql` in your Supabase SQL editor to create all required tables, RLS policies, RPC functions, realtime publication, and storage policies.
+Main modules currently implemented:
 
-Legacy SQL examples below are retained only for reference:
+- Auth: email/password + Google OAuth (Supabase).
+- Constellation management: create/join via invite code.
+- Chat: realtime-style message flow and image support.
+- Date plans and memories.
+- Profile and star type metadata.
 
-```sql
--- Create profiles table
-CREATE TABLE profiles (
-  id UUID REFERENCES auth.users ON DELETE CASCADE,
-  name TEXT,
-  email TEXT,
-  avatar_url TEXT,
-  about TEXT,
-  created_at TIMESTAMP WITH TIME ZONE,
-  updated_at TIMESTAMP WITH TIME ZONE,
-  hasConstellation BOOLEAN DEFAULT FALSE,
-  starType TEXT,
-  interests TEXT[] DEFAULT '{}',
-  PRIMARY KEY (id)
-);
+## Tech Stack
 
--- Create constellations table
-CREATE TABLE constellations (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  name TEXT NOT NULL,
-  created_by UUID REFERENCES profiles(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  invite_code TEXT UNIQUE NOT NULL
-);
+- React Native 0.72 + Expo modules
+- TypeScript
+- Supabase (Auth, Postgres, RLS, Storage, RPC)
+- Android native install flow via Gradle + ADB (without Expo Go)
 
--- Create constellation members table
-CREATE TABLE constellation_members (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  constellation_id UUID REFERENCES constellations(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-  role TEXT NOT NULL,
-  joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(constellation_id, user_id)
-);
+## Setup
 
--- Create messages table
-CREATE TABLE messages (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-  constellation_id UUID REFERENCES constellations(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Set up Row Level Security (RLS)
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE constellations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE constellation_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-
--- Create policies
-CREATE POLICY "Public profiles are viewable by everyone." ON profiles
-  FOR SELECT USING (true);
-
-CREATE POLICY "Users can insert their own profile." ON profiles
-  FOR INSERT WITH CHECK (auth.uid() = id);
-
-CREATE POLICY "Users can update their own profile." ON profiles
-  FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY "Constellations are viewable by members." ON constellations
-  FOR SELECT USING (
-    auth.uid() IN (
-      SELECT user_id FROM constellation_members WHERE constellation_id = id
-    )
-  );
-
-CREATE POLICY "Users can create constellations." ON constellations
-  FOR INSERT WITH CHECK (auth.uid() = created_by);
-
-CREATE POLICY "Constellation members are viewable by constellation members." ON constellation_members
-  FOR SELECT USING (
-    auth.uid() IN (
-      SELECT user_id FROM constellation_members WHERE constellation_id = constellation_id
-    )
-  );
-
-CREATE POLICY "Users can join constellations." ON constellation_members
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Messages are viewable by constellation members." ON messages
-  FOR SELECT USING (
-    auth.uid() IN (
-      SELECT user_id FROM constellation_members WHERE constellation_id = constellation_id
-    )
-  );
-
-CREATE POLICY "Users can insert messages in their constellations." ON messages
-  FOR INSERT WITH CHECK (
-    auth.uid() = user_id AND
-    auth.uid() IN (
-      SELECT user_id FROM constellation_members WHERE constellation_id = constellation_id
-    )
-  );
-```
-
-### 3. Enable Email Authentication
-
-1. In your Supabase project, go to Authentication > Providers
-2. Enable Email provider
-3. Configure according to your needs (e.g., enable/disable email confirmation)
-
-### 4. Install Dependencies
+### 1) Install dependencies
 
 ```bash
 npm install
 ```
 
-### 5. Run the App
+### 2) Configure Supabase
+
+Set your project URL and anon key in:
+
+- `src/utils/supabase.ts`
+
+### 3) Initialize database schema
+
+Run this once in Supabase SQL editor:
+
+- `final_supabase_setup.sql`
+
+If your database was already initialized previously and you need the RLS recursion hotfix, run:
+
+- `fix_constellation_members_rls_recursion.sql`
+
+### 4) Auth provider setup
+
+In Supabase dashboard:
+
+- Enable Email provider.
+- Enable Google provider and set callback URL to your Supabase auth callback.
+
+## Running on Android (Wi-Fi, native install)
 
 ```bash
 npm run android
 ```
 
-This command connects to your Android device over Wi-Fi (ADB), runs native Gradle `installDebug`, and launches the app directly (no Expo Go and no `expo run:android`).
-It also starts Metro via React Native CLI in the background.
+This workflow:
 
-## Development
+- connects ADB to device over Wi-Fi,
+- installs debug APK via Gradle (`installDebug`),
+- launches app via `adb shell am start`,
+- starts Metro/log stream.
 
-### Building a Development Client
+No Expo Go is used.
 
-To build a development client for testing on a physical device:
+## Single-Device Development Mode
 
-```bash
-# Make the script executable
-chmod +x build-dev-client.sh
+When only one device is available, you can continue feature testing using **Solo Test Mode** from the waiting screen.
 
-# Run the script
-./build-dev-client.sh
-```
+- It unlocks app navigation for core feature development.
+- It avoids partner-required blocking states during local iteration.
+- Sign out clears solo-mode session state.
 
-### Project Structure
+## Project Structure
 
-- `src/components`: Reusable UI components
-- `src/constants`: App constants and theme
-- `src/hooks`: Custom React hooks
-- `src/navigation`: Navigation setup
-- `src/provider`: Context providers
-- `src/screens`: App screens
-- `src/services`: API services (Supabase)
-- `src/types`: TypeScript type definitions
-- `src/utils`: Utility functions
+- `src/screens`: app feature screens
+- `src/navigation`: auth/app stack routing
+- `src/provider`: auth/session/status context
+- `src/components`: reusable UI primitives
+- `src/utils`: Supabase + helper logic
+- `final_supabase_setup.sql`: canonical backend bootstrap
 
-## Troubleshooting
+## Notes for Contributors
 
-### Authentication Issues
-
-- Make sure your Supabase URL and anon key are correct
-- Check if email authentication is enabled in your Supabase project
-- Verify that the database tables and policies are set up correctly
-
-### Database Issues
-
-- Check the Supabase logs for any errors
-- Verify that the tables are created with the correct schema
-- Make sure the Row Level Security policies are set up correctly
+- Prefer backend status RPCs (`get_user_constellation_status`) over ad hoc status derivation in screens.
+- Handle no-row membership queries with `.maybeSingle()` where membership is optional.
+- Keep navigation transitions stack-safe (avoid resetting to routes outside current navigator tree).
 
 ## License
 
-MIT 
+MIT
