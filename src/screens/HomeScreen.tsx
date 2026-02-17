@@ -52,25 +52,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [constellationId, setConstellationId] = useState<string | null>(null);
-  const [subscription, setSubscription] = useState<any>(null);
 
   useEffect(() => {
     if (user) {
       loadUserData();
       loadRecentActivities();
-    } else {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Welcome' }],
-      });
     }
-    
-    return () => {
-      // Clean up subscription
-      if (subscription) {
-        subscription.unsubscribe();
-      }
-    };
   }, [user]);
 
   const loadUserData = async () => {
@@ -96,14 +83,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) {
-        // User doesn't have a constellation yet
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'CreateConstellation' }],
-        });
+        throw memberError;
+      }
+
+      if (!memberData) {
+        setConstellationId(null);
+        setConstellationName('Solo Constellation');
+        setBondingStrength(0);
+        setPartnerName('Testing Mode');
+        setPartnerStarType(null);
+        setLoading(false);
         return;
       }
 

@@ -67,9 +67,15 @@ const MemoriesScreen: React.FC<MemoriesScreenProps> = ({ navigation }) => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) throw memberError;
+
+      if (!memberData || !memberData.constellation_id) {
+        setConstellationId(null);
+        setPartnerName('Testing Mode');
+        return;
+      }
       
       if (memberData && memberData.constellation_id) {
         setConstellationId(memberData.constellation_id);
@@ -113,9 +119,15 @@ const MemoriesScreen: React.FC<MemoriesScreenProps> = ({ navigation }) => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) throw memberError;
+
+      if (!memberData || !memberData.constellation_id) {
+        setMemories([]);
+        setLoading(false);
+        return;
+      }
       
       if (memberData && memberData.constellation_id) {
         // Get memories for this constellation

@@ -56,10 +56,19 @@ const ConstellationViewScreen: React.FC<ConstellationViewScreenProps> = () => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) {
         console.error('Error getting constellation membership:', memberError);
+        setLoading(false);
+        return;
+      }
+
+      if (!memberData || !memberData.constellation_id) {
+        setConstellationName('Solo Constellation');
+        setBondingStrength(0);
+        setPartnerName('Testing Mode');
+        setPartnerStarType(null);
         setLoading(false);
         return;
       }

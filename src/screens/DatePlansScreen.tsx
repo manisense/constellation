@@ -66,9 +66,15 @@ const DatePlansScreen: React.FC<DatePlansScreenProps> = ({ navigation }) => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) throw memberError;
+
+      if (!memberData || !memberData.constellation_id) {
+        setConstellationId(null);
+        setPartnerName('Testing Mode');
+        return;
+      }
       
       if (memberData && memberData.constellation_id) {
         setConstellationId(memberData.constellation_id);
@@ -112,9 +118,15 @@ const DatePlansScreen: React.FC<DatePlansScreenProps> = ({ navigation }) => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user?.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) throw memberError;
+
+      if (!memberData || !memberData.constellation_id) {
+        setDatePlans([]);
+        setLoading(false);
+        return;
+      }
       
       if (memberData && memberData.constellation_id) {
         // Get date plans for this constellation

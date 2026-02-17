@@ -28,6 +28,9 @@ drop function if exists public.get_partner_profile(uuid) cascade;
 drop function if exists public.increase_bonding_strength(uuid, integer) cascade;
 drop function if exists public.get_bonding_strength(uuid) cascade;
 drop function if exists public.should_show_home_screen() cascade;
+drop function if exists public.user_has_constellation_membership(uuid) cascade;
+drop function if exists public.user_is_in_any_constellation() cascade;
+drop function if exists public.constellation_member_count(uuid) cascade;
 
 drop table if exists public.quiz_results cascade;
 drop table if exists public.quiz_progress cascade;
@@ -298,6 +301,47 @@ after insert on auth.users
 for each row execute function public.handle_new_user();
 
 -- =====================================================
+-- RLS helper functions (avoid policy recursion)
+-- =====================================================
+create or replace function public.user_has_constellation_membership(target_constellation_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.constellation_members cm
+    where cm.constellation_id = target_constellation_id
+      and cm.user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.user_is_in_any_constellation()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.constellation_members cm
+    where cm.user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.constellation_member_count(target_constellation_id uuid)
+returns integer
+language sql
+security definer
+set search_path = public
+as $$
+  select count(*)::integer
+  from public.constellation_members cm
+  where cm.constellation_id = target_constellation_id;
+$$;
+
+-- =====================================================
 -- RLS
 -- =====================================================
 alter table public.profiles enable row level security;
@@ -361,22 +405,14 @@ for update using (
 -- constellation_members
 drop policy if exists constellation_members_select_member on public.constellation_members;
 create policy constellation_members_select_member on public.constellation_members
-for select using (
-  exists (
-    select 1 from public.constellation_members cm
-    where cm.constellation_id = constellation_members.constellation_id
-      and cm.user_id = auth.uid()
-  )
-);
+for select using (public.user_has_constellation_membership(constellation_id));
 
 drop policy if exists constellation_members_insert_self on public.constellation_members;
 create policy constellation_members_insert_self on public.constellation_members
 for insert with check (
   user_id = auth.uid()
-  and not exists (
-    select 1 from public.constellation_members mine where mine.user_id = auth.uid()
-  )
-  and (select count(*) from public.constellation_members x where x.constellation_id = constellation_members.constellation_id) < 2
+  and not public.user_is_in_any_constellation()
+  and public.constellation_member_count(constellation_id) < 2
 );
 
 drop policy if exists constellation_members_update_self on public.constellation_members;

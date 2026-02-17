@@ -72,10 +72,20 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
       
       if (memberError) {
         console.error('Error getting constellation membership:', memberError);
+        setLoading(false);
+        return;
+      }
+
+      if (!memberData || !memberData.constellation_id) {
+        console.log('No constellation membership found, running chat in solo mode');
+        setConstellationId(null);
+        setPartnerName('Testing Mode');
+        setPartnerStarType(null);
+        setMessages([]);
         setLoading(false);
         return;
       }
@@ -258,7 +268,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
             <Ionicons name="chatbubble-outline" size={64} color={COLORS.gray500} />
             <Text style={styles.emptyText}>No messages yet</Text>
             <Text style={styles.emptySubtext}>
-              Start a conversation with your {partnerStarType === 'luminary' ? 'Luminary' : 'Navigator'} partner
+              {constellationId
+                ? `Start a conversation with your ${partnerStarType === 'luminary' ? 'Luminary' : 'Navigator'} partner`
+                : 'Join with a partner (or exit Solo Test Mode) to start messaging'}
             </Text>
           </View>
         ) : (
@@ -310,6 +322,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
               onChangeText={setNewMessage}
               multiline
               maxLength={500}
+              editable={!!constellationId}
             />
             
             <TouchableOpacity
@@ -320,7 +333,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
                   : {},
               ]}
               onPress={handleSend}
-              disabled={(!newMessage.trim() && !selectedImage) || sending}
+              disabled={(!newMessage.trim() && !selectedImage) || sending || !constellationId}
             >
               {sending ? (
                 <ActivityIndicator size="small" color={COLORS.white} />

@@ -21,7 +21,7 @@ import Button from '../components/Button';
 import Card from '../components/Card';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../provider/AuthProvider';
-import { supabase, signOut } from '../utils/supabase';
+import { signOut } from '../utils/supabase';
 
 type WaitingForPartnerProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'WaitingForPartner'>;
@@ -29,7 +29,7 @@ type WaitingForPartnerProps = {
 };
 
 const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route }) => {
-  const { user, inviteCode: contextInviteCode, refreshUserStatus } = useAuth();
+  const { user, inviteCode: contextInviteCode, refreshUserStatus, enableSoloTestMode } = useAuth();
   const [copied, setCopied] = useState(false);
   const [dots, setDots] = useState('.');
   const pulseAnim = new Animated.Value(1);
@@ -67,56 +67,6 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
     return () => clearInterval(dotsInterval);
   }, []);
 
-  // Set up real-time subscription to check for partner joining
-  useEffect(() => {
-    if (!user) return;
-
-    let localSubscription: any = null;
-
-    const setupSubscription = async () => {
-      try {
-        // Get user's constellation ID
-        const { data: memberData, error: memberError } = await supabase
-          .from('constellation_members')
-          .select('constellation_id')
-          .eq('user_id', user.id)
-          .single();
-
-        if (memberError || !memberData) {
-          console.error('Error getting constellation membership:', memberError);
-          return;
-        }
-
-        const constellationId = memberData.constellation_id;
-
-        // Subscribe to changes in constellation_members table
-        localSubscription = supabase
-          .channel(`constellation_members:constellation_id=eq.${constellationId}`)
-          .on('postgres_changes', {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'constellation_members',
-            filter: `constellation_id=eq.${constellationId}`
-          }, (payload) => {
-            // Check if a new member was added
-            refreshUserStatus();
-          })
-          .subscribe();
-      } catch (error) {
-        console.error('Error setting up subscription:', error);
-      }
-    };
-
-    setupSubscription();
-
-    // Clean up subscription
-    return () => {
-      if (localSubscription) {
-        localSubscription.unsubscribe();
-      }
-    };
-  }, [user, refreshUserStatus]);
-
   // Periodically check status in case realtime fails
   useEffect(() => {
     if (!user) {
@@ -152,6 +102,15 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
       });
     } catch (error) {
       console.error('Error sharing invite code:', error);
+    }
+  };
+
+  const handleSoloTestMode = async () => {
+    try {
+      await enableSoloTestMode();
+      navigation.navigate('Home');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to enable solo test mode. Please try again.');
     }
   };
   
@@ -247,6 +206,12 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
             onPress={refreshUserStatus}
             style={styles.refreshButton}
           />
+          <Button
+            title="Continue in Solo Test Mode"
+            onPress={handleSoloTestMode}
+            style={styles.soloButton}
+            variant="secondary"
+          />
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.navigate('CreateConstellation')}
@@ -330,6 +295,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   refreshButton: {
+    marginBottom: SPACING.m,
+  },
+  soloButton: {
     marginBottom: SPACING.m,
   },
   backButton: {
