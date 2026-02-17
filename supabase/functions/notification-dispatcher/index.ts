@@ -33,6 +33,20 @@ const getEnv = (key: string): string => {
   return value;
 };
 
+const getOptionalNumberEnv = (key: string, fallback: number): number => {
+  const value = Deno.env.get(key);
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return parsed;
+};
+
 const buildCopy = (job: OutboxJob) => {
   switch (job.event_type) {
     case "message_new":
@@ -114,19 +128,8 @@ const sendOneSignalNotification = async (
 
 serve(async (req) => {
   try {
-    if (req.method !== "POST") {
-      return new Response(JSON.stringify({ error: "Method not allowed" }), {
-        status: 405,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
     const supabaseUrl = getEnv("SUPABASE_URL");
     const serviceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
-    const oneSignalRestApiKey = getEnv("ONESIGNAL_REST_API_KEY");
-    const oneSignalAppId =
-      Deno.env.get("ONESIGNAL_APP_ID") ||
-      getEnv("EXPO_PUBLIC_ONESIGNAL_APP_ID");
 
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
@@ -134,6 +137,133 @@ serve(async (req) => {
         autoRefreshToken: false,
       },
     });
+
+    if (req.method === "GET") {
+      const nowIso = new Date().toISOString();
+      const pendingAgeWarnSeconds = getOptionalNumberEnv(
+        "NOTIF_ALERT_PENDING_AGE_SECONDS",
+        300
+      );
+      const failedWarnCount = getOptionalNumberEnv(
+        "NOTIF_ALERT_FAILED_COUNT",
+        20
+      );
+      const queuedWarnCount = getOptionalNumberEnv(
+        "NOTIF_ALERT_QUEUED_COUNT",
+        100
+      );
+
+      const [queued, processing, failed, sent, discarded] = await Promise.all([
+        supabase
+          .from("notification_outbox")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "queued"),
+        supabase
+          .from("notification_outbox")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "processing"),
+        supabase
+          .from("notification_outbox")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "failed"),
+        supabase
+          .from("notification_outbox")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "sent"),
+        supabase
+          .from("notification_outbox")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "discarded"),
+      ]);
+
+      const countErrors = [queued, processing, failed, sent, discarded]
+        .map((r) => r.error)
+        .filter(Boolean);
+
+      if (countErrors.length > 0) {
+        throw countErrors[0];
+      }
+
+      const { data: oldestPending, error: oldestPendingError } = await supabase
+        .from("notification_outbox")
+        .select("created_at")
+        .in("status", ["queued", "failed", "processing"])
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (oldestPendingError) {
+        throw oldestPendingError;
+      }
+
+      const oldestPendingAgeSeconds = oldestPending?.created_at
+        ? Math.max(
+            0,
+            Math.floor(
+              (new Date(nowIso).getTime() -
+                new Date(oldestPending.created_at).getTime()) /
+                1000
+            )
+          )
+        : 0;
+
+      const queueCounts = {
+        queued: queued.count ?? 0,
+        processing: processing.count ?? 0,
+        failed: failed.count ?? 0,
+        sent: sent.count ?? 0,
+        discarded: discarded.count ?? 0,
+      };
+
+      const warnings: string[] = [];
+      if (oldestPendingAgeSeconds > pendingAgeWarnSeconds) {
+        warnings.push("pending_age_exceeds_threshold");
+      }
+
+      if (queueCounts.failed > failedWarnCount) {
+        warnings.push("failed_count_exceeds_threshold");
+      }
+
+      if (queueCounts.queued > queuedWarnCount) {
+        warnings.push("queued_count_exceeds_threshold");
+      }
+
+      const status = warnings.length > 0 ? "degraded" : "healthy";
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          health: {
+            at: nowIso,
+            status,
+            queue: queueCounts,
+            oldest_pending_age_seconds: oldestPendingAgeSeconds,
+            thresholds: {
+              pending_age_warn_seconds: pendingAgeWarnSeconds,
+              failed_warn_count: failedWarnCount,
+              queued_warn_count: queuedWarnCount,
+            },
+            alerts: warnings,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        status: 405,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const oneSignalRestApiKey = getEnv("ONESIGNAL_REST_API_KEY");
+    const oneSignalAppId =
+      Deno.env.get("ONESIGNAL_APP_ID") ||
+      getEnv("EXPO_PUBLIC_ONESIGNAL_APP_ID");
 
     const body = await req.json().catch(() => ({}));
     const requestedBatchSize = Number(body?.batch_size);

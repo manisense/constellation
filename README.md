@@ -120,6 +120,8 @@ This orchestrates Wi-Fi ADB connect, Metro startup, Gradle debug install, app la
 - Dispatcher source: `supabase/functions/notification-dispatcher/index.ts`
 - Claims queued rows via `claim_notification_outbox`, sends via OneSignal REST API, and finalizes via `complete_notification_outbox`
 - Input body (optional): `{ "batch_size": 20 }`
+- Health check: `GET` on the same endpoint returns queue counts by status and oldest pending age
+- Health check also reports `status`, alert thresholds, and `alerts` when limits are exceeded
 
 Deploy and invoke:
 
@@ -130,6 +132,16 @@ supabase functions deploy notification-dispatcher
 ```bash
 supabase functions invoke notification-dispatcher --body '{"batch_size":20}'
 ```
+
+```bash
+supabase functions invoke notification-dispatcher --method GET
+```
+
+Optional dispatcher alert thresholds (function env):
+
+- `NOTIF_ALERT_PENDING_AGE_SECONDS` (default: `300`)
+- `NOTIF_ALERT_FAILED_COUNT` (default: `20`)
+- `NOTIF_ALERT_QUEUED_COUNT` (default: `100`)
 
 Recommended: run this function on a schedule (e.g., every minute) using your Supabase scheduling approach.
 
