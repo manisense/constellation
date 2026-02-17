@@ -205,7 +205,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const renderConstellationCard = () => {
     return (
       <ImageBackground
-        source={require('../assets/images/constellation-bg.jpg')}
+        source={require('../assets/images/night-sky.png')}
         style={styles.constellationBackground}
         resizeMode="cover"
       >

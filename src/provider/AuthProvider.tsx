@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import { supabase, getUserConstellationStatus, shouldShowHomeScreen } from '../utils/supabase';
+import { supabase, getUserConstellationStatus } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';

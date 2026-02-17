@@ -17,11 +17,13 @@ This is a React Native Expo app that uses Supabase for authentication and data s
 1. Create a Supabase account at [supabase.com](https://supabase.com)
 2. Create a new project
 3. Get your Supabase URL and anon key from the project settings
-4. Update the `src/services/supabase.ts` file with your Supabase URL and anon key
+4. Update the `src/utils/supabase.ts` file with your Supabase URL and anon key
 
 ### 2. Database Setup
 
-Run the following SQL in your Supabase SQL editor to create the necessary tables:
+Run `final_supabase_setup.sql` in your Supabase SQL editor to create all required tables, RLS policies, RPC functions, realtime publication, and storage policies.
+
+Legacy SQL examples below are retained only for reference:
 
 ```sql
 -- Create profiles table
@@ -134,8 +136,11 @@ npm install
 ### 5. Run the App
 
 ```bash
-npx expo start
+npm run android
 ```
+
+This command connects to your Android device over Wi-Fi (ADB), runs native Gradle `installDebug`, and launches the app directly (no Expo Go and no `expo run:android`).
+It also starts Metro via React Native CLI in the background.
 
 ## Development
 
