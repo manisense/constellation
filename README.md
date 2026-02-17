@@ -31,6 +31,12 @@ It is a pair-only shared home where partners talk, play, remember, and grow toge
 npm install
 ```
 
+When native dependencies change (e.g., OneSignal), run:
+
+```bash
+npx expo prebuild
+```
+
 ### 1.1) UI styling foundation
 
 - NativeWind is preconfigured via `babel.config.js`, `metro.config.js`, `tailwind.config.js`, and `global.css`.
@@ -60,6 +66,7 @@ Set environment values for planned production integrations:
 	- `HMS_ACCESS_KEY`
 	- `HMS_SECRET`
 	- `ONESIGNAL_REST_API_KEY`
+	- `ONESIGNAL_APP_ID`
 	- `REDIS_URL` (phase-2 scaling)
 
 ### 4) Initialize database
@@ -92,6 +99,7 @@ This orchestrates Wi-Fi ADB connect, Metro startup, Gradle debug install, app la
 - Auth -> Create/Join constellation -> Waiting for partner -> Shared Room entry
 - Shared Room routes to Chat, Daily Ritual, Love Timeline, Date Plans, Memories
 - Communication includes text/media chat, lightweight voice note action, voice call, and video call sessions
+- Chat sends and call ring starts enqueue pair-scoped notification events in `notification_outbox`
 - Couple Play + Watch Together are pair-private sessions backed by constellation-scoped state
 - Settings includes backend-backed requests for account data export and account deletion
 - Settings includes backend-backed notification preference toggles (push/email)
@@ -106,6 +114,30 @@ This orchestrates Wi-Fi ADB connect, Metro startup, Gradle debug install, app la
 	- `couple_sessions`
 	- `account_data_requests`
 - Storage buckets/policies include `chat-images`, `memories`, and `voice-notes`
+
+## Push Outbox Dispatcher (Edge Function)
+
+- Dispatcher source: `supabase/functions/notification-dispatcher/index.ts`
+- Claims queued rows via `claim_notification_outbox`, sends via OneSignal REST API, and finalizes via `complete_notification_outbox`
+- Input body (optional): `{ "batch_size": 20 }`
+
+Deploy and invoke:
+
+```bash
+supabase functions deploy notification-dispatcher
+```
+
+```bash
+supabase functions invoke notification-dispatcher --body '{"batch_size":20}'
+```
+
+Recommended: run this function on a schedule (e.g., every minute) using your Supabase scheduling approach.
+
+Scheduler helper SQL:
+
+- `supabase/sql/setup_notification_dispatch_scheduler.sql`
+- Replaces placeholders for `<PROJECT_REF>` and `<SERVICE_ROLE_JWT>` before running
+- Do not store real keys in committed files; execute with local/private values only
 
 ## Project Structure
 

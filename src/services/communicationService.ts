@@ -1,5 +1,5 @@
 import { CallSession } from "../types";
-import { supabase } from "../utils/supabase";
+import { enqueuePairNotification, supabase } from "../utils/supabase";
 
 export type ChatPayload = {
   constellationId: string;
@@ -35,6 +35,21 @@ export const sendTextOrMediaMessage = async (payload: ChatPayload) => {
     throw error;
   }
 
+  try {
+    await enqueuePairNotification({
+      constellationId,
+      eventType: "message_new",
+      payload: {
+        has_image: Boolean(imageUrl),
+        has_voice_note: Boolean(voiceNoteUrl),
+        preview_text: (content || "").slice(0, 120),
+        message_id: data.id,
+      },
+    });
+  } catch (enqueueError) {
+    console.error("Failed to enqueue message notification:", enqueueError);
+  }
+
   return data;
 };
 
@@ -57,6 +72,21 @@ export const createCallSession = async (
 
   if (error) {
     throw error;
+  }
+
+  try {
+    await enqueuePairNotification({
+      constellationId,
+      eventType: "call_ringing",
+      payload: {
+        call_session_id: data.id,
+        call_type: data.type,
+        started_by: data.started_by,
+        created_at: data.created_at,
+      },
+    });
+  } catch (enqueueError) {
+    console.error("Failed to enqueue call notification:", enqueueError);
   }
 
   return {

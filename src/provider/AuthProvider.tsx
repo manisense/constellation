@@ -3,6 +3,11 @@ import { supabase, getUserConstellationStatus } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
+import {
+  initializeOneSignal,
+  syncCurrentOneSignalPushDevice,
+  unregisterCurrentOneSignalPushDevice,
+} from '../services/notificationService';
 
 type UserStatus = 'no_constellation' | 'waiting_for_partner' | 'complete';
 
@@ -115,6 +120,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const signOut = async (navigation: NavigationProp<any>) => {
     try {
       console.log('Signing out...');
+
+      await unregisterCurrentOneSignalPushDevice();
       
       // Sign out from Supabase
       await supabase.auth.signOut();
@@ -147,6 +154,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const initializeAuth = async () => {
       try {
+        await initializeOneSignal();
+
         const { data } = await supabase.auth.getSession();
 
         if (!isMounted) {
@@ -157,6 +166,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(data.session?.user ?? null);
 
         if (data.session?.user?.id) {
+          await syncCurrentOneSignalPushDevice();
           await refreshUserStatus();
         } else {
           setUserStatus(null);
@@ -198,6 +208,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setUser(newSession?.user ?? null);
 
           if (newSession?.user?.id) {
+            await syncCurrentOneSignalPushDevice();
             await refreshUserStatus();
           } else {
             setUserStatus(null);

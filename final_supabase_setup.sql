@@ -1559,3 +1559,157 @@ begin
   return jsonb_build_object('success', true, 'outbox_id', outbox_id);
 end;
 $$;
+
+create or replace function public.claim_notification_outbox(
+  p_batch_size integer default 20
+)
+returns table (
+  id uuid,
+  constellation_id uuid,
+  recipient_user_id uuid,
+  actor_user_id uuid,
+  event_type text,
+  payload jsonb,
+  attempts integer,
+  subscription_ids text[]
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'Access denied';
+  end if;
+
+  update public.notification_outbox o
+  set
+    status = 'discarded',
+    last_error = 'push_disabled',
+    updated_at = now()
+  where o.status in ('queued', 'failed')
+    and o.available_at <= now()
+    and exists (
+      select 1
+      from public.notification_preferences np
+      where np.user_id = o.recipient_user_id
+        and np.push_enabled = false
+    );
+
+  return query
+  with candidates as (
+    select o.id
+    from public.notification_outbox o
+    left join public.notification_preferences np on np.user_id = o.recipient_user_id
+    where o.status in ('queued', 'failed')
+      and o.available_at <= now()
+      and coalesce(np.push_enabled, true) = true
+    order by o.created_at asc
+    limit greatest(1, least(coalesce(p_batch_size, 20), 100))
+    for update skip locked
+  ),
+  claimed as (
+    update public.notification_outbox o
+    set
+      status = 'processing',
+      attempts = o.attempts + 1,
+      updated_at = now(),
+      last_error = null
+    from candidates c
+    where o.id = c.id
+    returning
+      o.id,
+      o.constellation_id,
+      o.recipient_user_id,
+      o.actor_user_id,
+      o.event_type,
+      o.payload,
+      o.attempts
+  )
+  select
+    c.id,
+    c.constellation_id,
+    c.recipient_user_id,
+    c.actor_user_id,
+    c.event_type,
+    c.payload,
+    c.attempts,
+    coalesce(
+      (
+        select array_agg(pd.subscription_id)
+        from public.push_devices pd
+        where pd.user_id = c.recipient_user_id
+          and pd.provider = 'onesignal'
+          and pd.is_active = true
+      ),
+      '{}'::text[]
+    ) as subscription_ids
+  from claimed c;
+end;
+$$;
+
+create or replace function public.complete_notification_outbox(
+  p_id uuid,
+  p_success boolean,
+  p_error text default null,
+  p_retry_delay_seconds integer default 60,
+  p_discard boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated_count integer := 0;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'Access denied';
+  end if;
+
+  if p_id is null then
+    raise exception 'p_id is required';
+  end if;
+
+  if p_success then
+    update public.notification_outbox
+    set
+      status = 'sent',
+      sent_at = now(),
+      updated_at = now(),
+      last_error = null
+    where id = p_id
+      and status = 'processing';
+  elsif p_discard then
+    update public.notification_outbox
+    set
+      status = 'discarded',
+      updated_at = now(),
+      last_error = coalesce(p_error, 'discarded')
+    where id = p_id
+      and status = 'processing';
+  else
+    update public.notification_outbox
+    set
+      status = case when attempts >= 5 then 'discarded' else 'failed' end,
+      available_at = case
+        when attempts >= 5 then available_at
+        else now() + make_interval(secs => greatest(coalesce(p_retry_delay_seconds, 60), 15))
+      end,
+      updated_at = now(),
+      last_error = coalesce(p_error, 'delivery_failed')
+    where id = p_id
+      and status = 'processing';
+  end if;
+
+  get diagnostics updated_count = row_count;
+
+  return jsonb_build_object(
+    'success', true,
+    'updated', updated_count
+  );
+end;
+$$;
+
+revoke execute on function public.claim_notification_outbox(integer) from anon, authenticated;
+revoke execute on function public.complete_notification_outbox(uuid, boolean, text, integer, boolean) from anon, authenticated;

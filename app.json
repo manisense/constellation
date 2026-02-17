@@ -37,6 +37,12 @@
     "plugins": [
       "expo-image-picker",
       [
+        "onesignal-expo-plugin",
+        {
+          "mode": "development"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
