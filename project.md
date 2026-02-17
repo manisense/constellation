@@ -34,6 +34,12 @@ The room evolves with relationship activity:
 - gifts represented as room objects
 - anniversary moments and seasonal ambience
 
+Implementation direction (current build):
+- room-first home is the default authenticated entry
+- lifecycle is status/RPC driven (`no_constellation` -> `waiting_for_partner` -> `complete`)
+- quiz is optional ritual/play content, not a hard gate
+- solo mode is removed entirely
+
 ### 2) Romantic Communication Layer
 Core communication:
 - text chat
@@ -47,6 +53,12 @@ Romantic differentiators:
 - synchronized “kiss/hug” micro-interactions
 - lightweight heartbeat/presence moments
 - virtual gifts that appear in room
+
+Baseline delivered in core roadmap:
+- text + image chat
+- voice note lane in chat flow
+- private 1:1 voice call and video call session flows
+- pair-only call/session state persistence
 
 ### 3) Daily Love Rituals
 - Daily check-in (mood, energy, miss-you meter)
@@ -71,6 +83,10 @@ Timeline progress unlocks:
 - mini-games (co-op or light challenge)
 - quiz formats (know me better, love language, memory quiz)
 - watch-together with reactions and post-watch prompts
+
+Baseline delivered in core roadmap:
+- one co-op prompt game lane
+- one watch-together lane with private shared reactions
 
 ## Core Loops
 1. Communicate -> Earn Love Points -> Room evolves
@@ -140,6 +156,14 @@ Premium:
 4. Daily rituals
 5. Memory timeline + unlocks
 6. Mini-games + watch-together baseline
+
+## Delivery Stack Baseline
+- Supabase remains source of truth for auth, pair lifecycle, data, policies, and storage access controls.
+- 100ms is the baseline provider for real 1:1 voice/video media transport.
+- OneSignal is the baseline provider for pair-scoped push notifications.
+- Resend is the baseline provider for transactional app email.
+- Redis is deferred to phase-2 and introduced only when async throughput/rate-limit requirements exceed Postgres/worker-only capacity.
+- Environment strategy uses strict separation between public client variables and server-only secrets.
 
 ## Positioning
 OurSpace is a private romantic world for couples who want more than texting: a place where love grows, memories live, and distance feels smaller.

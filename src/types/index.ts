@@ -15,8 +15,8 @@ export interface User {
 
 // Star types
 export enum StarType {
-  LUMINARY = 'luminary',
-  NAVIGATOR = 'navigator',
+  LUMINARY = "luminary",
+  NAVIGATOR = "navigator",
 }
 
 // Constellation types
@@ -73,6 +73,69 @@ export interface Message {
   createdAt: Date;
 }
 
+export interface SharedRoomState {
+  constellationId: string;
+  roomName: string;
+  bondingStrength: number;
+  ambience: "starglow" | "sunset" | "moonlight";
+  decorLevel: number;
+  unlockedArtifacts: string[];
+  chapterUnlocked: number;
+}
+
+export interface RitualEntry {
+  id: string;
+  constellationId: string;
+  createdAt: string;
+  completedBy: string;
+  ritualType: "check_in" | "prompt" | "gratitude";
+  promptText?: string;
+  responseText?: string;
+}
+
+export interface TimelineChapter {
+  id: string;
+  constellationId: string;
+  chapterIndex: number;
+  title: string;
+  summary: string;
+  isUnlocked: boolean;
+  milestoneCount: number;
+}
+
+export type CallType = "voice" | "video";
+
+export interface CallSession {
+  id: string;
+  constellationId: string;
+  startedBy: string;
+  type: CallType;
+  status: "ringing" | "active" | "ended" | "missed";
+  createdAt: string;
+}
+
+export interface CoupleSession {
+  id: string;
+  constellationId: string;
+  mode: "game" | "watch";
+  status: "active" | "ended";
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface NotificationPreferences {
+  pushEnabled: boolean;
+  emailEnabled: boolean;
+  updatedAt?: string;
+}
+
+export interface PushDeviceRegistration {
+  provider: "onesignal";
+  subscriptionId: string;
+  platform: "ios" | "android";
+  appVersion?: string;
+}
+
 // Navigation types
 export type RootStackParamList = {
   Welcome: undefined;
@@ -98,9 +161,15 @@ export type RootStackParamList = {
   // New screens
   DatePlans: undefined;
   Memories: undefined;
+  DailyRitual: undefined;
+  Timeline: undefined;
+  VoiceCall: undefined;
+  VideoCall: undefined;
+  CoupleGame: undefined;
+  WatchTogether: undefined;
   // Tab navigator screens
   HomeTab: undefined;
   ChatTab: undefined;
   ConstellationTab: undefined;
   SettingsTab: undefined;
-}; 
+};

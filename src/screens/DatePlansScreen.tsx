@@ -72,7 +72,7 @@ const DatePlansScreen: React.FC<DatePlansScreenProps> = ({ navigation }) => {
 
       if (!memberData || !memberData.constellation_id) {
         setConstellationId(null);
-        setPartnerName('Testing Mode');
+        setPartnerName('Your partner');
         return;
       }
       

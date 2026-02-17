@@ -67,7 +67,7 @@ const ConstellationViewScreen: React.FC<ConstellationViewScreenProps> = () => {
       if (!memberData || !memberData.constellation_id) {
         setConstellationName('Solo Constellation');
         setBondingStrength(0);
-        setPartnerName('Testing Mode');
+          setPartnerName('Your partner');
         setPartnerStarType(null);
         setLoading(false);
         return;

@@ -30,6 +30,12 @@ import SettingsScreen from '../screens/SettingsScreen';
 // New Feature Screens
 import DatePlansScreen from '../screens/DatePlansScreen';
 import MemoriesScreen from '../screens/MemoriesScreen';
+import DailyRitualScreen from '../screens/DailyRitualScreen';
+import TimelineScreen from '../screens/TimelineScreen';
+import VoiceCallScreen from '../screens/VoiceCallScreen';
+import VideoCallScreen from '../screens/VideoCallScreen';
+import CoupleGameScreen from '../screens/CoupleGameScreen';
+import WatchTogetherScreen from '../screens/WatchTogetherScreen';
 
 // Create navigators
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -42,8 +48,8 @@ const MainTabNavigator = () => {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#121212',
-          borderTopColor: '#2C2C2C',
+          backgroundColor: COLORS.background,
+          borderTopColor: COLORS.gray700,
         },
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.gray500,
@@ -135,20 +141,6 @@ const OnboardingStack = () => {
   );
 };
 
-// Quiz Stack (constellation formed but quiz not completed)
-const QuizStack = () => {
-  return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Stack.Screen name="Quiz" component={QuizScreen} />
-      <Stack.Screen name="StarReveal" component={StarRevealScreen} />
-    </Stack.Navigator>
-  );
-};
-
 // App Stack (fully authenticated with constellation and quiz completed)
 const AppStack = () => {
   return (
@@ -166,6 +158,12 @@ const AppStack = () => {
       <Stack.Screen name="StarReveal" component={StarRevealScreen} />
       <Stack.Screen name="DatePlans" component={DatePlansScreen} />
       <Stack.Screen name="Memories" component={MemoriesScreen} />
+      <Stack.Screen name="DailyRitual" component={DailyRitualScreen} />
+      <Stack.Screen name="Timeline" component={TimelineScreen} />
+      <Stack.Screen name="VoiceCall" component={VoiceCallScreen} />
+      <Stack.Screen name="VideoCall" component={VideoCallScreen} />
+      <Stack.Screen name="CoupleGame" component={CoupleGameScreen} />
+      <Stack.Screen name="WatchTogether" component={WatchTogetherScreen} />
     </Stack.Navigator>
   );
 };
@@ -202,10 +200,6 @@ const AppNavigator = () => {
       // User created a constellation and is waiting for partner
       console.log("User waiting for partner, showing OnboardingStack");
       return <OnboardingStack />;
-    case 'quiz_needed':
-      // Both users joined but we're skipping the quiz now
-      console.log("Quiz needed, but skipping to AppStack since star types are auto-assigned");
-      return <AppStack />;
     case 'complete':
       // Constellation is complete, show main app
       console.log("Constellation complete, showing AppStack");

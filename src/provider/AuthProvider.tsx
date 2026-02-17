@@ -3,9 +3,8 @@ import { supabase, getUserConstellationStatus } from '../utils/supabase';
 import { Session, User } from '@supabase/supabase-js';
 import { Alert } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-type UserStatus = 'no_constellation' | 'waiting_for_partner' | 'quiz_needed' | 'complete';
+type UserStatus = 'no_constellation' | 'waiting_for_partner' | 'complete';
 
 type AuthContextType = {
   user: User | null;
@@ -14,11 +13,8 @@ type AuthContextType = {
   userStatus: UserStatus | null;
   inviteCode: string | null;
   refreshUserStatus: () => Promise<void>;
-  enableSoloTestMode: () => Promise<void>;
   signOut: (navigation: NavigationProp<any>) => Promise<void>;
 };
-
-const SOLO_TEST_MODE_KEY = '@constellation/solo-test-mode';
 
 export const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -27,7 +23,6 @@ export const AuthContext = createContext<AuthContextType>({
   userStatus: null,
   inviteCode: null,
   refreshUserStatus: async () => {},
-  enableSoloTestMode: async () => {},
   signOut: async () => {},
 });
 
@@ -55,14 +50,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   const normalizeStatus = (status: any): UserStatus => {
-    if (
-      status === 'no_constellation' ||
-      status === 'waiting_for_partner' ||
-      status === 'quiz_needed' ||
-      status === 'complete'
-    ) {
+    if (status === 'no_constellation' || status === 'waiting_for_partner' || status === 'complete') {
       return status;
     }
+
+    if (status === 'quiz_needed') {
+      return 'complete';
+    }
+
     return 'no_constellation';
   };
 
@@ -101,13 +96,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           return;
         }
 
-        const soloTestModeEnabled = await AsyncStorage.getItem(SOLO_TEST_MODE_KEY);
-        if (soloTestModeEnabled === 'true' && data.status === 'waiting_for_partner') {
-          setUserStatus('complete');
-          setInviteCode(null);
-          return;
-        }
-
         applyStatusState(data);
       } catch (error) {
         console.error('Error refreshing user status:', error);
@@ -123,12 +111,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     return refreshInFlightRef.current;
   }, [applyStatusState]);
 
-  const enableSoloTestMode = useCallback(async () => {
-    await AsyncStorage.setItem(SOLO_TEST_MODE_KEY, 'true');
-    setUserStatus('complete');
-    setInviteCode(null);
-  }, []);
-
   // Improved sign-out function with proper navigation handling
   const signOut = async (navigation: NavigationProp<any>) => {
     try {
@@ -138,7 +120,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await supabase.auth.signOut();
       
       // Clear local state
-      await AsyncStorage.removeItem(SOLO_TEST_MODE_KEY);
       setUser(null);
       setSession(null);
       setUserStatus(null);
@@ -243,7 +224,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         userStatus,
         inviteCode,
         refreshUserStatus,
-        enableSoloTestMode,
         signOut,
       }}
     >

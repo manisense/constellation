@@ -14,9 +14,6 @@
         "buildConfiguration": "Debug",
         "simulator": true
       },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://firestore.googleapis.com"
-      },
       "channel": "development"
     },
     "development-device": {
@@ -28,9 +25,6 @@
       },
       "ios": {
         "buildConfiguration": "Debug"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://firestore.googleapis.com"
       },
       "channel": "development-device"
     },

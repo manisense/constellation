@@ -1038,3 +1038,524 @@ with check (
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant execute on all functions in schema public to authenticated;
+
+-- =====================================================
+-- Core rollout extensions (pair-only)
+-- =====================================================
+
+create table if not exists public.room_states (
+  id uuid primary key default gen_random_uuid(),
+  constellation_id uuid not null unique references public.constellations(id) on delete cascade,
+  ambience text not null default 'starglow' check (ambience in ('starglow','sunset','moonlight')),
+  decor_level integer not null default 1,
+  unlocked_artifacts text[] not null default '{}',
+  chapter_unlocked integer not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.call_sessions (
+  id uuid primary key default gen_random_uuid(),
+  constellation_id uuid not null references public.constellations(id) on delete cascade,
+  started_by uuid not null references public.profiles(id) on delete cascade,
+  type text not null check (type in ('voice','video')),
+  status text not null default 'ringing' check (status in ('ringing','active','ended','missed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.daily_ritual_entries (
+  id uuid primary key default gen_random_uuid(),
+  constellation_id uuid not null references public.constellations(id) on delete cascade,
+  completed_by uuid not null references public.profiles(id) on delete cascade,
+  ritual_type text not null check (ritual_type in ('check_in','prompt','gratitude')),
+  prompt_text text,
+  response_text text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.timeline_chapters (
+  id uuid primary key default gen_random_uuid(),
+  constellation_id uuid not null references public.constellations(id) on delete cascade,
+  chapter_index integer not null,
+  title text not null,
+  summary text not null default '',
+  is_unlocked boolean not null default false,
+  milestone_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (constellation_id, chapter_index)
+);
+
+create table if not exists public.couple_sessions (
+  id uuid primary key default gen_random_uuid(),
+  constellation_id uuid not null references public.constellations(id) on delete cascade,
+  mode text not null check (mode in ('game','watch')),
+  status text not null default 'active' check (status in ('active','ended')),
+  created_by uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.account_data_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  request_type text not null check (request_type in ('export','deletion')),
+  status text not null default 'pending' check (status in ('pending','processing','completed','rejected')),
+  created_at timestamptz not null default now()
+);
+
+alter table public.messages
+  add column if not exists message_type text not null default 'text' check (message_type in ('text','image','voice_note'));
+
+alter table public.messages
+  add column if not exists voice_note_url text;
+
+alter table public.messages
+  add column if not exists voice_note_duration_ms integer;
+
+create or replace function public.is_pair_member(target_constellation_id uuid)
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1 from public.constellation_members cm
+    where cm.constellation_id = target_constellation_id
+      and cm.user_id = auth.uid()
+  );
+$$;
+
+create or replace function public.request_account_export()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  insert into public.account_data_requests (user_id, request_type)
+  values (auth.uid(), 'export');
+
+  return jsonb_build_object('success', true);
+end;
+$$;
+
+create or replace function public.request_account_deletion()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  insert into public.account_data_requests (user_id, request_type)
+  values (auth.uid(), 'deletion');
+
+  return jsonb_build_object('success', true);
+end;
+$$;
+
+create or replace function public.get_constellation_ritual_streak(target_constellation_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  streak_count integer := 0;
+begin
+  if not public.is_pair_member(target_constellation_id) then
+    return 0;
+  end if;
+
+  select count(*)::int
+  into streak_count
+  from (
+    select date_trunc('day', created_at) as ritual_day
+    from public.daily_ritual_entries
+    where constellation_id = target_constellation_id
+    group by date_trunc('day', created_at)
+  ) days
+  where ritual_day >= date_trunc('day', now()) - interval '14 days';
+
+  return coalesce(streak_count, 0);
+end;
+$$;
+
+create or replace function public.get_on_this_day_memories(
+  target_constellation_id uuid,
+  target_month integer,
+  target_day integer
+)
+returns setof public.memories
+language sql
+stable
+as $$
+  select *
+  from public.memories
+  where constellation_id = target_constellation_id
+    and extract(month from date::date) = target_month
+    and extract(day from date::date) = target_day
+  order by date desc;
+$$;
+
+alter table public.room_states enable row level security;
+alter table public.call_sessions enable row level security;
+alter table public.daily_ritual_entries enable row level security;
+alter table public.timeline_chapters enable row level security;
+alter table public.couple_sessions enable row level security;
+alter table public.account_data_requests enable row level security;
+
+drop policy if exists room_states_pair_access on public.room_states;
+create policy room_states_pair_access on public.room_states
+for all to authenticated
+using (public.is_pair_member(constellation_id))
+with check (public.is_pair_member(constellation_id));
+
+drop policy if exists call_sessions_pair_access on public.call_sessions;
+create policy call_sessions_pair_access on public.call_sessions
+for all to authenticated
+using (public.is_pair_member(constellation_id))
+with check (public.is_pair_member(constellation_id));
+
+drop policy if exists rituals_pair_access on public.daily_ritual_entries;
+create policy rituals_pair_access on public.daily_ritual_entries
+for all to authenticated
+using (public.is_pair_member(constellation_id))
+with check (public.is_pair_member(constellation_id));
+
+drop policy if exists timeline_pair_access on public.timeline_chapters;
+create policy timeline_pair_access on public.timeline_chapters
+for all to authenticated
+using (public.is_pair_member(constellation_id))
+with check (public.is_pair_member(constellation_id));
+
+drop policy if exists couple_sessions_pair_access on public.couple_sessions;
+create policy couple_sessions_pair_access on public.couple_sessions
+for all to authenticated
+using (public.is_pair_member(constellation_id))
+with check (public.is_pair_member(constellation_id));
+
+drop policy if exists account_requests_owner_access on public.account_data_requests;
+create policy account_requests_owner_access on public.account_data_requests
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+insert into storage.buckets (id, name, public)
+values ('voice-notes', 'voice-notes', true)
+on conflict (id) do update set public = excluded.public;
+
+drop policy if exists voice_notes_read_member on storage.objects;
+create policy voice_notes_read_member on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'voice-notes'
+  and (storage.foldername(name))[1] in (
+    select cm.constellation_id::text from public.constellation_members cm where cm.user_id = auth.uid()
+  )
+);
+
+drop policy if exists voice_notes_insert_member on storage.objects;
+create policy voice_notes_insert_member on storage.objects
+for insert to authenticated
+with check (
+  bucket_id = 'voice-notes'
+  and (storage.foldername(name))[1] in (
+    select cm.constellation_id::text from public.constellation_members cm where cm.user_id = auth.uid()
+  )
+);
+
+-- =====================================================
+-- Notifications foundation (pair-only)
+-- =====================================================
+
+create table if not exists public.notification_preferences (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  push_enabled boolean not null default true,
+  email_enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.push_devices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  provider text not null check (provider in ('onesignal')),
+  subscription_id text not null,
+  platform text not null check (platform in ('ios','android')),
+  app_version text,
+  is_active boolean not null default true,
+  last_seen_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (provider, subscription_id)
+);
+
+create table if not exists public.notification_outbox (
+  id uuid primary key default gen_random_uuid(),
+  constellation_id uuid not null references public.constellations(id) on delete cascade,
+  recipient_user_id uuid not null references public.profiles(id) on delete cascade,
+  actor_user_id uuid references public.profiles(id) on delete set null,
+  event_type text not null check (event_type in ('message_new','call_ringing','ritual_reminder','partner_joined','system')),
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'queued' check (status in ('queued','processing','sent','failed','discarded')),
+  attempts integer not null default 0,
+  available_at timestamptz not null default now(),
+  sent_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_push_devices_user_active
+  on public.push_devices(user_id, is_active);
+
+create index if not exists idx_notification_outbox_delivery
+  on public.notification_outbox(status, available_at, recipient_user_id);
+
+alter table public.notification_preferences enable row level security;
+alter table public.push_devices enable row level security;
+alter table public.notification_outbox enable row level security;
+
+drop policy if exists notification_preferences_owner_access on public.notification_preferences;
+create policy notification_preferences_owner_access on public.notification_preferences
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists push_devices_owner_access on public.push_devices;
+create policy push_devices_owner_access on public.push_devices
+for all to authenticated
+using (user_id = auth.uid())
+with check (user_id = auth.uid());
+
+drop policy if exists notification_outbox_pair_select on public.notification_outbox;
+create policy notification_outbox_pair_select on public.notification_outbox
+for select to authenticated
+using (recipient_user_id = auth.uid());
+
+create or replace function public.get_notification_preferences()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  pref_row public.notification_preferences;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select *
+  into pref_row
+  from public.notification_preferences
+  where user_id = auth.uid();
+
+  if pref_row.user_id is null then
+    return jsonb_build_object(
+      'push_enabled', true,
+      'email_enabled', true
+    );
+  end if;
+
+  return jsonb_build_object(
+    'push_enabled', pref_row.push_enabled,
+    'email_enabled', pref_row.email_enabled,
+    'updated_at', pref_row.updated_at
+  );
+end;
+$$;
+
+create or replace function public.set_notification_preferences(
+  p_push_enabled boolean default null,
+  p_email_enabled boolean default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result_row public.notification_preferences;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  insert into public.notification_preferences (user_id, push_enabled, email_enabled, updated_at)
+  values (
+    auth.uid(),
+    coalesce(p_push_enabled, true),
+    coalesce(p_email_enabled, true),
+    now()
+  )
+  on conflict (user_id) do update
+  set
+    push_enabled = coalesce(p_push_enabled, public.notification_preferences.push_enabled),
+    email_enabled = coalesce(p_email_enabled, public.notification_preferences.email_enabled),
+    updated_at = now()
+  returning * into result_row;
+
+  return jsonb_build_object(
+    'push_enabled', result_row.push_enabled,
+    'email_enabled', result_row.email_enabled,
+    'updated_at', result_row.updated_at
+  );
+end;
+$$;
+
+create or replace function public.register_push_device(
+  p_provider text,
+  p_subscription_id text,
+  p_platform text,
+  p_app_version text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  device_row public.push_devices;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if p_subscription_id is null or length(trim(p_subscription_id)) = 0 then
+    raise exception 'subscription_id is required';
+  end if;
+
+  insert into public.push_devices (
+    user_id,
+    provider,
+    subscription_id,
+    platform,
+    app_version,
+    is_active,
+    last_seen_at,
+    updated_at
+  )
+  values (
+    auth.uid(),
+    p_provider,
+    p_subscription_id,
+    p_platform,
+    p_app_version,
+    true,
+    now(),
+    now()
+  )
+  on conflict (provider, subscription_id) do update
+  set
+    user_id = auth.uid(),
+    platform = excluded.platform,
+    app_version = excluded.app_version,
+    is_active = true,
+    last_seen_at = now(),
+    updated_at = now()
+  returning * into device_row;
+
+  return jsonb_build_object(
+    'id', device_row.id,
+    'provider', device_row.provider,
+    'platform', device_row.platform,
+    'is_active', device_row.is_active,
+    'last_seen_at', device_row.last_seen_at
+  );
+end;
+$$;
+
+create or replace function public.unregister_push_device(
+  p_provider text,
+  p_subscription_id text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  affected_rows integer;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  update public.push_devices
+  set
+    is_active = false,
+    updated_at = now()
+  where user_id = auth.uid()
+    and provider = p_provider
+    and subscription_id = p_subscription_id;
+
+  get diagnostics affected_rows = row_count;
+
+  return jsonb_build_object(
+    'success', true,
+    'updated', affected_rows
+  );
+end;
+$$;
+
+create or replace function public.enqueue_pair_notification(
+  target_constellation_id uuid,
+  target_event_type text,
+  target_payload jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  partner_user_id uuid;
+  outbox_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if not public.is_pair_member(target_constellation_id) then
+    raise exception 'Access denied';
+  end if;
+
+  select cm.user_id
+  into partner_user_id
+  from public.constellation_members cm
+  where cm.constellation_id = target_constellation_id
+    and cm.user_id <> auth.uid()
+  limit 1;
+
+  if partner_user_id is null then
+    return jsonb_build_object('success', false, 'reason', 'partner_not_found');
+  end if;
+
+  insert into public.notification_outbox (
+    constellation_id,
+    recipient_user_id,
+    actor_user_id,
+    event_type,
+    payload
+  )
+  values (
+    target_constellation_id,
+    partner_user_id,
+    auth.uid(),
+    target_event_type,
+    coalesce(target_payload, '{}'::jsonb)
+  )
+  returning id into outbox_id;
+
+  return jsonb_build_object('success', true, 'outbox_id', outbox_id);
+end;
+$$;

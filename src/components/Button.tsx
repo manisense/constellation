@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, ActivityIndicator, TouchableOpacityProps } from 'react-native';
+import { TouchableOpacity, Text, ActivityIndicator, TouchableOpacityProps, TextStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -16,6 +16,7 @@ interface ButtonProps extends TouchableOpacityProps {
   disabled?: boolean;
   className?: string;
   textClassName?: string;
+  textStyle?: TextStyle;
 }
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -29,7 +30,9 @@ const Button: React.FC<ButtonProps> = ({
   loading = false,
   disabled = false,
   textClassName,
+  textStyle,
   className,
+  style,
   onPressIn,
   onPressOut,
   ...rest
@@ -62,7 +65,7 @@ const Button: React.FC<ButtonProps> = ({
   return (
     <AnimatedTouchableOpacity
       className={`${base} ${variantClass} ${sizeClass} ${disabledClass} ${className || ''}`}
-      style={animatedStyle}
+      style={[animatedStyle, style]}
       onPress={onPress}
       onPressIn={(event) => {
         scale.value = withSpring(0.97, {
@@ -89,7 +92,12 @@ const Button: React.FC<ButtonProps> = ({
       ) : (
         <>
           {icon}
-          <Text className={`${textVariantClass} ${icon ? 'ml-1' : ''} ${textClassName || ''}`}>{title}</Text>
+          <Text
+            className={`${textVariantClass} ${icon ? 'ml-1' : ''} ${textClassName || ''}`}
+            style={textStyle}
+          >
+            {title}
+          </Text>
         </>
       )}
     </AnimatedTouchableOpacity>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, Text, TextInputProps, TouchableOpacity } from 'react-native';
+import { View, TextInput, Text, TextInputProps, TouchableOpacity, StyleProp, ViewStyle } from 'react-native';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -7,6 +7,7 @@ interface InputProps extends TextInputProps {
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
   className?: string;
+  containerStyle?: StyleProp<ViewStyle>;
   labelClassName?: string;
   inputClassName?: string;
   errorClassName?: string;
@@ -19,6 +20,7 @@ const Input: React.FC<InputProps> = ({
   leftIcon,
   rightIcon,
   className,
+  containerStyle,
   labelClassName,
   inputClassName,
   errorClassName,
@@ -28,7 +30,7 @@ const Input: React.FC<InputProps> = ({
   const [isFocused, setIsFocused] = useState(false);
 
   return (
-    <View className={`mb-4 w-full ${className || ''}`}>
+    <View className={`mb-4 w-full ${className || ''}`} style={containerStyle}>
       {label && (
         <Text className={`text-white text-sm mb-1 ${labelClassName || ''}`}>{label}</Text>
       )}

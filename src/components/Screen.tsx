@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, SafeAreaView, StatusBar, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
+import { View, SafeAreaView, StatusBar, KeyboardAvoidingView, ScrollView, Platform, StyleSheet } from 'react-native';
 import Header from './Header';
 import { useAuth } from '../provider/AuthProvider';
 
@@ -87,5 +87,20 @@ const Screen: React.FC<ScreenProps> = ({
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  contentContainer: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+});
 
 export default Screen;

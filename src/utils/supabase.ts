@@ -5,9 +5,16 @@ import { Alert } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 
-const supabaseUrl = "https://xblnqfcghzhjbtiunfax.supabase.co";
-const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhibG5xZmNnaHpoamJ0aXVuZmF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNTA1MzIsImV4cCI6MjA4NjkyNjUzMn0.Vcj50zM5zDZPaWrnQ5G0jlvCeVeADYpwrMmBf29g0ts";
+const getRequiredEnv = (key: string) => {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+};
+
+const supabaseUrl = getRequiredEnv("EXPO_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getRequiredEnv("EXPO_PUBLIC_SUPABASE_ANON_KEY");
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -836,4 +843,153 @@ const generateInviteCode = () => {
     result += characters.charAt(Math.floor(Math.random() * characters.length));
   }
   return result;
+};
+
+export const uploadVoiceNote = async (
+  constellationId: string,
+  fileUri: string,
+  durationMs: number
+) => {
+  const fileExt = fileUri.split(".").pop()?.toLowerCase() || "m4a";
+  const fileName = `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}.${fileExt}`;
+  const path = `${constellationId}/${fileName}`;
+
+  const response = await fetch(fileUri);
+  const blob = await response.blob();
+
+  const { error } = await supabase.storage
+    .from("voice-notes")
+    .upload(path, blob, {
+      contentType: blob.type || "audio/m4a",
+      upsert: false,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  const { data } = supabase.storage.from("voice-notes").getPublicUrl(path);
+
+  return {
+    voiceNoteUrl: data.publicUrl,
+    voiceNoteDurationMs: durationMs,
+  };
+};
+
+export const requestAccountDeletion = async () => {
+  const { data, error } = await supabase.rpc("request_account_deletion");
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export const requestAccountExport = async () => {
+  const { data, error } = await supabase.rpc("request_account_export");
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export type NotificationProvider = "onesignal";
+export type NotificationPlatform = "ios" | "android";
+
+export interface NotificationPreferences {
+  push_enabled: boolean;
+  email_enabled: boolean;
+  updated_at?: string;
+}
+
+export const getNotificationPreferences = async () => {
+  const { data, error } = await supabase.rpc("get_notification_preferences");
+
+  if (error) {
+    throw error;
+  }
+
+  return data as NotificationPreferences;
+};
+
+export const setNotificationPreferences = async (params: {
+  pushEnabled?: boolean;
+  emailEnabled?: boolean;
+}) => {
+  const { data, error } = await supabase.rpc("set_notification_preferences", {
+    p_push_enabled:
+      typeof params.pushEnabled === "boolean" ? params.pushEnabled : null,
+    p_email_enabled:
+      typeof params.emailEnabled === "boolean" ? params.emailEnabled : null,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data as NotificationPreferences;
+};
+
+export const registerPushDevice = async (params: {
+  provider?: NotificationProvider;
+  subscriptionId: string;
+  platform: NotificationPlatform;
+  appVersion?: string;
+}) => {
+  const { data, error } = await supabase.rpc("register_push_device", {
+    p_provider: params.provider || "onesignal",
+    p_subscription_id: params.subscriptionId,
+    p_platform: params.platform,
+    p_app_version: params.appVersion ?? null,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export const unregisterPushDevice = async (params: {
+  provider?: NotificationProvider;
+  subscriptionId: string;
+}) => {
+  const { data, error } = await supabase.rpc("unregister_push_device", {
+    p_provider: params.provider || "onesignal",
+    p_subscription_id: params.subscriptionId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+export const enqueuePairNotification = async (params: {
+  constellationId: string;
+  eventType:
+    | "message_new"
+    | "call_ringing"
+    | "ritual_reminder"
+    | "partner_joined"
+    | "system";
+  payload?: Record<string, any>;
+}) => {
+  const { data, error } = await supabase.rpc("enqueue_pair_notification", {
+    target_constellation_id: params.constellationId,
+    target_event_type: params.eventType,
+    target_payload: params.payload ?? {},
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 };

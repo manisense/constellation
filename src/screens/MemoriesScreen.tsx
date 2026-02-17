@@ -73,7 +73,7 @@ const MemoriesScreen: React.FC<MemoriesScreenProps> = ({ navigation }) => {
 
       if (!memberData || !memberData.constellation_id) {
         setConstellationId(null);
-        setPartnerName('Testing Mode');
+        setPartnerName('Your partner');
         return;
       }
       

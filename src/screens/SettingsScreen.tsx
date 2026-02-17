@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,12 @@ import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
-import { supabase } from '../utils/supabase';
+import {
+  getNotificationPreferences,
+  requestAccountDeletion,
+  requestAccountExport,
+  setNotificationPreferences,
+} from '../utils/supabase';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useAuth } from '../provider/AuthProvider';
 
@@ -22,7 +27,55 @@ type SettingsScreenProps = {
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(true);
+  const [emailEnabled, setEmailEnabled] = useState(true);
   const { user, signOut } = useAuth();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadNotificationPreferences = async () => {
+      try {
+        const data = await getNotificationPreferences();
+        if (!isMounted) {
+          return;
+        }
+
+        setPushEnabled(data.push_enabled);
+        setEmailEnabled(data.email_enabled);
+      } catch (error) {
+        console.error('Failed to load notification preferences:', error);
+      }
+    };
+
+    loadNotificationPreferences();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const updateNotificationPreference = async (
+    type: 'push' | 'email',
+    nextValue: boolean
+  ) => {
+    try {
+      setLoading(true);
+
+      const data = await setNotificationPreferences({
+        pushEnabled: type === 'push' ? nextValue : undefined,
+        emailEnabled: type === 'email' ? nextValue : undefined,
+      });
+
+      setPushEnabled(data.push_enabled);
+      setEmailEnabled(data.email_enabled);
+    } catch (error) {
+      console.error(`Failed to update ${type} notification preference:`, error);
+      Alert.alert('Error', `Failed to update ${type} notifications. Please try again.`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDeleteAccount = () => {
     Alert.alert(
@@ -43,35 +96,16 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
                 throw new Error('No user is currently signed in');
               }
 
-              // Delete user data from Supabase profiles table
-              const { error: profileError } = await supabase
-                .from('profiles')
-                .delete()
-                .eq('id', user.id);
-                
-              if (profileError) {
-                console.error('Error deleting user profile:', profileError);
-                // Continue with account deletion even if profile deletion fails
-              }
+              await requestAccountDeletion();
 
-              // Delete the user account
-              const { error } = await supabase.auth.admin.deleteUser(user.id);
-              if (error) throw error;
-              
-              // Navigate to welcome screen
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Welcome' }],
-              });
+              Alert.alert(
+                'Deletion Requested',
+                'Your account deletion request has been submitted and will be processed securely.'
+              );
             } catch (error: any) {
               console.error('Account deletion error:', error);
-              
-              let errorMessage = 'Failed to delete account. Please try again.';
-              if (error.message && error.message.includes('recent login')) {
-                errorMessage = 'For security reasons, please sign out and sign in again before deleting your account.';
-              }
-              
-              Alert.alert('Error', errorMessage);
+
+              Alert.alert('Error', 'Failed to request account deletion. Please try again.');
             } finally {
               setLoading(false);
             }
@@ -120,23 +154,23 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           <Text style={styles.sectionTitle}>Notifications</Text>
           <TouchableOpacity
             style={styles.option}
-            onPress={() => Alert.alert('Coming Soon', 'This feature will be available soon!')}
+            onPress={() => updateNotificationPreference('push', !pushEnabled)}
           >
             <View style={styles.optionRow}>
               <Ionicons name="notifications-outline" size={24} color={COLORS.white} style={styles.optionIcon} />
               <Text style={styles.optionText}>Push Notifications</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.gray300} />
+            <Text style={styles.statusText}>{pushEnabled ? 'On' : 'Off'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.option}
-            onPress={() => Alert.alert('Coming Soon', 'This feature will be available soon!')}
+            onPress={() => updateNotificationPreference('email', !emailEnabled)}
           >
             <View style={styles.optionRow}>
               <MaterialIcons name="mail-outline" size={24} color={COLORS.white} style={styles.optionIcon} />
               <Text style={styles.optionText}>Email Notifications</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.gray300} />
+            <Text style={styles.statusText}>{emailEnabled ? 'On' : 'Off'}</Text>
           </TouchableOpacity>
         </Card>
 
@@ -164,6 +198,40 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           </TouchableOpacity>
         </Card>
 
+        <Card style={styles.section}>
+          <Text style={styles.sectionTitle}>Privacy & Data</Text>
+          <TouchableOpacity
+            style={styles.option}
+            onPress={async () => {
+              try {
+                setLoading(true);
+                await requestAccountExport();
+                Alert.alert('Export Requested', 'We will prepare your private data export and notify you when it is ready.');
+              } catch (error) {
+                Alert.alert('Error', 'Failed to request data export. Please try again.');
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <View style={styles.optionRow}>
+              <Feather name="download" size={24} color={COLORS.white} style={styles.optionIcon} />
+              <Text style={styles.optionText}>Request Data Export</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray300} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.option}
+            onPress={handleDeleteAccount}
+          >
+            <View style={styles.optionRow}>
+              <Feather name="trash-2" size={24} color={COLORS.error} style={styles.optionIcon} />
+              <Text style={[styles.optionText, { color: COLORS.error }]}>Request Account Deletion</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.gray300} />
+          </TouchableOpacity>
+        </Card>
+
         <View style={styles.bottomSection}>
           <TouchableOpacity
             style={styles.signOutButton}
@@ -179,14 +247,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           >
             <Ionicons name="log-out-outline" size={20} color={COLORS.white} style={styles.buttonIcon} />
             <Text style={styles.signOutText}>Sign Out</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.deleteAccountButton}
-            onPress={handleDeleteAccount}
-          >
-            <Feather name="trash-2" size={20} color={COLORS.error} style={styles.buttonIcon} />
-            <Text style={styles.deleteAccountText}>Delete Account</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -235,6 +295,10 @@ const styles = StyleSheet.create({
   },
   optionIcon: {
     marginRight: SPACING.m,
+  },
+  statusText: {
+    fontSize: FONTS.body2,
+    color: COLORS.gray300,
   },
   optionText: {
     fontSize: FONTS.body1,

@@ -20,9 +20,6 @@ import Screen from '../components/Screen';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../provider/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import { decode } from 'base64-arraybuffer';
-import uuid from 'react-native-uuid';
 import {
   Message,
   getConstellationMessages,
@@ -30,7 +27,6 @@ import {
   pickImage,
   sendMessage,
   getPartnerProfile,
-  increaseBondingStrength
 } from '../utils/clientFixes';
 
 type ChatScreenProps = {
@@ -50,6 +46,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
   const [showImageModal, setShowImageModal] = useState(false);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const [bondingStrength, setBondingStrength] = useState(0);
+  const [voiceSending, setVoiceSending] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -81,9 +78,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
       }
 
       if (!memberData || !memberData.constellation_id) {
-        console.log('No constellation membership found, running chat in solo mode');
+        console.log('No constellation membership found');
         setConstellationId(null);
-        setPartnerName('Testing Mode');
+        setPartnerName('Partner');
         setPartnerStarType(null);
         setMessages([]);
         setLoading(false);
@@ -195,6 +192,27 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
     }
   };
 
+  const handleSendVoiceNote = async () => {
+    if (!constellationId || !user) {
+      return;
+    }
+
+    try {
+      setVoiceSending(true);
+      const success = await sendMessage(constellationId, '🎤 Voice note', null);
+
+      if (!success) {
+        throw new Error('Failed to send voice note');
+      }
+
+      setBondingStrength(prev => Math.min(prev + 1, 100));
+    } catch (error) {
+      Alert.alert('Error', 'Voice note could not be sent. Please try again.');
+    } finally {
+      setVoiceSending(false);
+    }
+  };
+
   const renderMessage = ({ item }: { item: Message }) => {
     const isCurrentUser = item.user_id === user?.id;
     
@@ -270,7 +288,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
             <Text style={styles.emptySubtext}>
               {constellationId
                 ? `Start a conversation with your ${partnerStarType === 'luminary' ? 'Luminary' : 'Navigator'} partner`
-                : 'Join with a partner (or exit Solo Test Mode) to start messaging'}
+                : 'Join with your partner to start messaging'}
             </Text>
           </View>
         ) : (
@@ -289,6 +307,31 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
           keyboardVerticalOffset={100}
           style={styles.inputContainer}
         >
+          <View style={styles.callActionsRow}>
+            <TouchableOpacity style={styles.callActionPill} onPress={() => navigation.navigate('VoiceCall')}>
+              <Ionicons name="call-outline" size={16} color={COLORS.white} />
+              <Text style={styles.callActionText}>Voice</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.callActionPill} onPress={() => navigation.navigate('VideoCall')}>
+              <Ionicons name="videocam-outline" size={16} color={COLORS.white} />
+              <Text style={styles.callActionText}>Video</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.callActionPill}
+              onPress={handleSendVoiceNote}
+              disabled={voiceSending || !constellationId}
+            >
+              {voiceSending ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Ionicons name="mic-outline" size={16} color={COLORS.white} />
+              )}
+              <Text style={styles.callActionText}>Voice Note</Text>
+            </TouchableOpacity>
+          </View>
+
           {selectedImage && (
             <View style={styles.selectedImageContainer}>
               <Image
@@ -432,6 +475,27 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.gray600,
     padding: SPACING.s,
+  },
+  callActionsRow: {
+    flexDirection: 'row',
+    gap: SPACING.s,
+    marginBottom: SPACING.s,
+    flexWrap: 'wrap',
+  },
+  callActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.gray700,
+    paddingHorizontal: SPACING.s,
+    paddingVertical: 6,
+    backgroundColor: COLORS.input,
+  },
+  callActionText: {
+    color: COLORS.white,
+    fontSize: FONTS.caption,
   },
   inputRow: {
     flexDirection: 'row',

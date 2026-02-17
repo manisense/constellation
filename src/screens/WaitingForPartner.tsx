@@ -29,7 +29,7 @@ type WaitingForPartnerProps = {
 };
 
 const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route }) => {
-  const { user, inviteCode: contextInviteCode, refreshUserStatus, enableSoloTestMode } = useAuth();
+  const { user, inviteCode: contextInviteCode, refreshUserStatus } = useAuth();
   const [copied, setCopied] = useState(false);
   const [dots, setDots] = useState('.');
   const pulseAnim = new Animated.Value(1);
@@ -105,15 +105,6 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
     }
   };
 
-  const handleSoloTestMode = async () => {
-    try {
-      await enableSoloTestMode();
-      navigation.navigate('Home');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to enable solo test mode. Please try again.');
-    }
-  };
-  
   const handleSignOut = async () => {
     Alert.alert(
       "Sign Out",
@@ -195,7 +186,7 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
               Waiting for your partner to join{dots}
             </Text>
             <Text style={styles.waitingSubtext}>
-              Once they join, you'll both take a personality quiz to discover your star types
+              Once they join, your shared room opens instantly and you can begin your rituals, chat, and timeline together.
             </Text>
           </View>
         </View>
@@ -205,12 +196,6 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
             title="Refresh Status"
             onPress={refreshUserStatus}
             style={styles.refreshButton}
-          />
-          <Button
-            title="Continue in Solo Test Mode"
-            onPress={handleSoloTestMode}
-            style={styles.soloButton}
-            variant="secondary"
           />
           <TouchableOpacity
             style={styles.backButton}
@@ -295,9 +280,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   refreshButton: {
-    marginBottom: SPACING.m,
-  },
-  soloButton: {
     marginBottom: SPACING.m,
   },
   backButton: {

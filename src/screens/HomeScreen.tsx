@@ -1,327 +1,139 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Image,
-  FlatList,
-  ActivityIndicator,
-  Alert,
-  ImageBackground,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types';
-import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import Screen from '../components/Screen';
-import Card, { TouchableCard } from '../components/Card';
+import Card from '../components/Card';
+import { COLORS, FONTS, SPACING } from '../constants/theme';
+import { RootStackParamList, SharedRoomState } from '../types';
+import { getSharedRoomState } from '../services/roomService';
 import { supabase } from '../utils/supabase';
-import { StarType } from '../types';
-import { Ionicons, FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../hooks/useAuth';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
 };
 
-interface Activity {
-  id: string;
-  title: string;
-  icon: React.ReactNode;
-  screen: keyof RootStackParamList;
-}
-
-interface RecentActivity {
-  id: string;
-  type: 'quiz' | 'chat' | 'memory' | 'date';
-  title: string;
-  timestamp: string;
-  icon: React.ReactNode;
-}
-
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { user } = useAuth();
-  const [userName, setUserName] = useState('');
-  const [partnerName, setPartnerName] = useState('');
-  const [constellationName, setConstellationName] = useState('');
-  const [bondingStrength, setBondingStrength] = useState(0);
-  const [userStarType, setUserStarType] = useState<StarType | null>(null);
-  const [partnerStarType, setPartnerStarType] = useState<StarType | null>(null);
-  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
+  const [roomState, setRoomState] = useState<SharedRoomState | null>(null);
+  const [partnerName, setPartnerName] = useState('Your partner');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [constellationId, setConstellationId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user) {
-      loadUserData();
-      loadRecentActivities();
-    }
-  }, [user]);
-
-  const loadUserData = async () => {
-    if (!user) return;
-    
+  const loadRoom = async () => {
     try {
       setLoading(true);
+      const room = await getSharedRoomState();
+      setRoomState(room);
 
-      // Get user profile
-      const { data: userData, error: userError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      
-      if (userError) throw userError;
-      
-      setUserName(userData.name || 'User');
-      setUserStarType(userData.star_type || null);
-
-      // Get user's constellation membership
-      const { data: memberData, error: memberError } = await supabase
-        .from('constellation_members')
-        .select('constellation_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      
-      if (memberError) {
-        throw memberError;
-      }
-
-      if (!memberData) {
-        setConstellationId(null);
-        setConstellationName('Solo Constellation');
-        setBondingStrength(0);
-        setPartnerName('Testing Mode');
-        setPartnerStarType(null);
-        setLoading(false);
-        return;
-      }
-
-      if (memberData && memberData.constellation_id) {
-        setConstellationId(memberData.constellation_id);
-        
-        // Get constellation data
-        const { data: constellationData, error: constellationError } = await supabase
-          .from('constellations')
-          .select('*')
-          .eq('id', memberData.constellation_id)
-          .single();
-        
-        if (constellationError) throw constellationError;
-        
-        setConstellationName(constellationData.name || 'Your Constellation');
-        setBondingStrength(constellationData.bonding_strength || 0);
-
-        // Get partner data
-        const { data: partners, error: partnersError } = await supabase
+      if (room?.constellationId && user) {
+        const { data: partnerMember } = await supabase
           .from('constellation_members')
           .select('user_id')
-          .eq('constellation_id', memberData.constellation_id)
-          .neq('user_id', user.id);
-        
-        if (partnersError) throw partnersError;
-        
-        if (partners && partners.length > 0) {
-          const partnerId = partners[0].user_id;
-          
-          // Get partner profile
-          const { data: partnerData, error: partnerError } = await supabase
+          .eq('constellation_id', room.constellationId)
+          .neq('user_id', user.id)
+          .maybeSingle();
+
+        if (partnerMember?.user_id) {
+          const { data: profile } = await supabase
             .from('profiles')
-            .select('*')
-            .eq('id', partnerId)
-            .single();
-            
-          if (!partnerError && partnerData) {
-            setPartnerName(partnerData.name || 'Partner');
-            setPartnerStarType(partnerData.star_type || null);
+            .select('name')
+            .eq('id', partnerMember.user_id)
+            .maybeSingle();
+
+          if (profile?.name) {
+            setPartnerName(profile.name);
           }
         }
       }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error('Error loading user data:', error);
-      setError('Failed to load data. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
 
-  const loadRecentActivities = async () => {
-    try {
-      // This would ideally come from the server, but for now we'll generate some sample activities
-      const activities: RecentActivity[] = [
-        {
-          id: '1',
-          type: 'quiz',
-          title: 'Completed daily love quiz',
-          timestamp: '2 hours ago',
-          icon: <FontAwesome5 name="heart" size={20} color={COLORS.white} />
-        },
-        {
-          id: '2',
-          type: 'memory',
-          title: 'Added new memory: "Stargazing Date"',
-          timestamp: 'Yesterday',
-          icon: <FontAwesome5 name="star" size={20} color={COLORS.white} />
-        }
-      ];
-
-      setRecentActivities(activities);
-    } catch (error) {
-      console.error('Error loading recent activities:', error);
-    }
-  };
-
-  const handleActivityPress = (activity: Activity) => {
-    // Use explicit navigation based on activity type
-    switch (activity.title) {
-      case 'Love Quiz':
-        navigation.navigate('Quiz');
-        break;
-      case 'Chat Room':
-        navigation.navigate('Chat');
-        break;
-      case 'Date Plans':
-        navigation.navigate('DatePlans');
-        break;
-      case 'Memories':
-        navigation.navigate('Memories');
-        break;
-      default:
-        console.warn(`Unknown activity: ${activity.title}`);
-    }
-  };
-
-  const renderConstellationCard = () => {
-    return (
-      <ImageBackground
-        source={require('../assets/images/night-sky.png')}
-        style={styles.constellationBackground}
-        resizeMode="cover"
-      >
-        <View style={styles.constellationContent}>
-          <Text style={styles.constellationTitle}>Your Constellation</Text>
-          <Text style={styles.constellationSubtitle}>Connected with {partnerName}</Text>
-        </View>
-      </ImageBackground>
-    );
-  };
-
-  const renderDailyActivities = () => {
-    const activities: Activity[] = [
-      {
-        id: '1',
-        title: 'Love Quiz',
-        icon: <FontAwesome5 name="heart" size={24} color={COLORS.white} />,
-        screen: 'Quiz'
-      },
-      {
-        id: '2',
-        title: 'Chat Room',
-        icon: <Ionicons name="chatbubble-outline" size={24} color={COLORS.white} />,
-        screen: 'Chat'
-      },
-      {
-        id: '3',
-        title: 'Date Plans',
-        icon: <FontAwesome5 name="calendar-alt" size={24} color={COLORS.white} />,
-        screen: 'DatePlans'
-      },
-      {
-        id: '4',
-        title: 'Memories',
-        icon: <MaterialIcons name="star-outline" size={24} color={COLORS.white} />,
-        screen: 'Memories'
-      }
-    ];
-
-    return (
-      <View style={styles.activitiesContainer}>
-        <Text style={styles.sectionTitle}>Daily Activities</Text>
-        <View style={styles.activitiesGrid}>
-          {activities.map((activity) => (
-            <TouchableOpacity
-              key={activity.id}
-              style={styles.activityCard}
-              onPress={() => handleActivityPress(activity)}
-            >
-              <View style={styles.activityIconContainer}>
-                {activity.icon}
-              </View>
-              <Text style={styles.activityTitle}>{activity.title}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    );
-  };
-
-  const renderConnectionStrength = () => {
-    return (
-      <Card style={styles.connectionCard}>
-        <View style={styles.connectionHeader}>
-          <Text style={styles.connectionTitle}>Connection Strength</Text>
-          <View style={styles.connectionIconContainer}>
-            <FontAwesome5 name="heart" size={24} color={COLORS.white} />
-          </View>
-        </View>
-        <Text style={styles.connectionPercentage}>{bondingStrength}% Aligned</Text>
-        <View style={styles.progressBarContainer}>
-          <View 
-            style={[
-              styles.progressBar, 
-              { width: `${bondingStrength}%` }
-            ]} 
-          />
-        </View>
-      </Card>
-    );
-  };
-
-  const renderRecentActivities = () => {
-    return (
-      <View style={styles.recentActivitiesContainer}>
-        <Text style={styles.sectionTitle}>Recent Activities</Text>
-        {recentActivities.map((activity) => (
-          <Card key={activity.id} style={styles.recentActivityCard}>
-            <View style={styles.recentActivityIconContainer}>
-              {activity.icon}
-            </View>
-            <View style={styles.recentActivityContent}>
-              <Text style={styles.recentActivityTitle}>{activity.title}</Text>
-              <Text style={styles.recentActivityTime}>{activity.timestamp}</Text>
-            </View>
-          </Card>
-        ))}
-      </View>
-    );
-  };
+  useEffect(() => {
+    loadRoom();
+  }, [user?.id]);
 
   if (loading) {
     return (
-      <Screen showHeader={true} headerTitle="Constellation">
+      <Screen showHeader headerTitle="Our Room">
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator color={COLORS.primary} size="large" />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (!roomState) {
+    return (
+      <Screen showHeader headerTitle="Our Room">
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyTitle}>Your room appears after pairing</Text>
+          <Text style={styles.emptyText}>Create or join your private constellation to unlock your shared home.</Text>
         </View>
       </Screen>
     );
   }
 
   return (
-    <Screen showHeader={true} headerTitle="Constellation">
-      <ScrollView style={styles.container}>
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+    <Screen showHeader headerTitle="Our Shared Room">
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Card style={styles.heroCard}>
+          <Text style={styles.heroTitle}>{roomState.roomName}</Text>
+          <Text style={styles.heroSubtitle}>With {partnerName}</Text>
+          <Text style={styles.heroMeta}>Ambience: {roomState.ambience} · Decor Lv.{roomState.decorLevel}</Text>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${roomState.bondingStrength}%` }]} />
           </View>
-        )}
-        
-        {renderConstellationCard()}
-        {renderDailyActivities()}
-        {renderConnectionStrength()}
-        {renderRecentActivities()}
+          <Text style={styles.progressText}>{roomState.bondingStrength}% connection strength</Text>
+        </Card>
+
+        <View style={styles.grid}>
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('DailyRitual')}>
+            <Text style={styles.tileTitle}>Daily Ritual</Text>
+            <Text style={styles.tileText}>Check-in, prompt, gentle streak</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('Timeline')}>
+            <Text style={styles.tileTitle}>Love Timeline</Text>
+            <Text style={styles.tileText}>Chapters and unlocks</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('Chat')}>
+            <Text style={styles.tileTitle}>Chat & Voice Notes</Text>
+            <Text style={styles.tileText}>Text, media, audio moments</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('VoiceCall')}>
+            <Text style={styles.tileTitle}>Voice Call</Text>
+            <Text style={styles.tileText}>Private 1:1 connection</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('VideoCall')}>
+            <Text style={styles.tileTitle}>Video Call</Text>
+            <Text style={styles.tileText}>Face-to-face cozy time</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('CoupleGame')}>
+            <Text style={styles.tileTitle}>Couple Game</Text>
+            <Text style={styles.tileText}>Co-op prompt play</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('WatchTogether')}>
+            <Text style={styles.tileTitle}>Watch Together</Text>
+            <Text style={styles.tileText}>Private shared reactions</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('DatePlans')}>
+            <Text style={styles.tileTitle}>Date Plans</Text>
+            <Text style={styles.tileText}>Plan upcoming moments</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.tile} onPress={() => navigation.navigate('Memories')}>
+            <Text style={styles.tileTitle}>Memories</Text>
+            <Text style={styles.tileText}>Capture your story</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -332,151 +144,86 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  content: {
+    padding: SPACING.l,
+    gap: SPACING.m,
+    paddingBottom: SPACING.xl,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  errorContainer: {
-    backgroundColor: COLORS.error,
-    padding: SPACING.m,
-    borderRadius: 8,
-    marginHorizontal: SPACING.l,
-    marginTop: SPACING.m,
-  },
-  errorText: {
-    color: COLORS.white,
-    fontSize: FONTS.body2,
-    textAlign: 'center',
-  },
-  constellationBackground: {
-    width: '100%',
-    height: 200,
-    justifyContent: 'flex-end',
-  },
-  constellationContent: {
-    padding: SPACING.l,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  constellationTitle: {
-    fontSize: FONTS.h2,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginBottom: SPACING.xs,
-  },
-  constellationSubtitle: {
-    fontSize: FONTS.body1,
-    color: COLORS.white,
-  },
-  activitiesContainer: {
-    padding: SPACING.l,
-  },
-  sectionTitle: {
-    fontSize: FONTS.h3,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginBottom: SPACING.m,
-  },
-  activitiesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  activityCard: {
-    width: '48%',
-    backgroundColor: COLORS.card,
-    borderRadius: SIZES.borderRadius,
-    padding: SPACING.l,
-    marginBottom: SPACING.m,
-    alignItems: 'center',
-  },
-  activityIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: COLORS.gray800,
+  emptyContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: SPACING.m,
-  },
-  activityTitle: {
-    fontSize: FONTS.body1,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    textAlign: 'center',
-  },
-  connectionCard: {
-    marginHorizontal: SPACING.l,
-    marginBottom: SPACING.l,
     padding: SPACING.l,
   },
-  connectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SPACING.m,
-  },
-  connectionTitle: {
-    fontSize: FONTS.h3,
-    fontWeight: 'bold',
+  emptyTitle: {
     color: COLORS.white,
+    fontSize: FONTS.h3,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: SPACING.s,
   },
-  connectionIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  connectionPercentage: {
-    fontSize: FONTS.body1,
+  emptyText: {
     color: COLORS.gray300,
-    marginBottom: SPACING.m,
+    textAlign: 'center',
   },
-  progressBarContainer: {
+  heroCard: {
+    padding: SPACING.l,
+    gap: SPACING.s,
+  },
+  heroTitle: {
+    color: COLORS.white,
+    fontSize: FONTS.h2,
+    fontWeight: '700',
+  },
+  heroSubtitle: {
+    color: COLORS.highlight,
+    fontSize: FONTS.body1,
+  },
+  heroMeta: {
+    color: COLORS.gray300,
+    fontSize: FONTS.body2,
+  },
+  progressTrack: {
     width: '100%',
     height: 8,
+    borderRadius: 6,
     backgroundColor: COLORS.gray700,
-    borderRadius: 4,
     overflow: 'hidden',
   },
-  progressBar: {
+  progressFill: {
     height: '100%',
+    borderRadius: 6,
     backgroundColor: COLORS.primary,
   },
-  recentActivitiesContainer: {
-    padding: SPACING.l,
-    paddingTop: 0,
+  progressText: {
+    color: COLORS.gray300,
+    fontSize: FONTS.caption,
   },
-  recentActivityCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  grid: {
+    gap: SPACING.s,
+  },
+  tile: {
+    borderWidth: 1,
+    borderColor: COLORS.gray700,
+    borderRadius: 12,
     padding: SPACING.m,
-    marginBottom: SPACING.m,
+    backgroundColor: COLORS.card,
   },
-  recentActivityIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.gray800,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: SPACING.m,
-  },
-  recentActivityContent: {
-    flex: 1,
-  },
-  recentActivityTitle: {
-    fontSize: FONTS.body2,
-    fontWeight: 'bold',
+  tileTitle: {
     color: COLORS.white,
+    fontSize: FONTS.body1,
+    fontWeight: '700',
     marginBottom: SPACING.xs,
   },
-  recentActivityTime: {
-    fontSize: FONTS.caption,
-    color: COLORS.gray500,
+  tileText: {
+    color: COLORS.gray300,
+    fontSize: FONTS.body2,
   },
 });
 
-export default HomeScreen; 
+export default HomeScreen;

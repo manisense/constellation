@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ViewProps, TouchableOpacity, TouchableOpacityProps } from 'react-native';
+import { View, ViewProps, TouchableOpacity, TouchableOpacityProps, ViewStyle } from 'react-native';
 
 interface CardProps extends ViewProps {
   children: React.ReactNode;
