@@ -14,7 +14,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
-import { signInWithEmail } from '../utils/supabase';
+import { signInWithEmail, signInWithGoogle } from '../utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import Screen from '../components/Screen';
 import { useAuth } from '../provider/AuthProvider';
@@ -85,6 +85,29 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
     } catch (error: any) {
       console.error('Login error:', error);
       Alert.alert('Login Error', error.message || 'Failed to sign in. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await signInWithGoogle();
+
+      if (error) {
+        const errorMessage =
+          typeof error === 'object' && error && 'message' in error
+            ? (error as { message: string }).message
+            : 'Google sign in failed';
+        throw new Error(errorMessage);
+      }
+
+      if (data?.session || data?.user) {
+        await refreshUserStatus();
+      }
+    } catch (error: any) {
+      Alert.alert('Google Sign In Error', error.message || 'Failed to sign in with Google.');
     } finally {
       setLoading(false);
     }
@@ -165,6 +188,15 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               <Text style={styles.dividerText}>or</Text>
               <View style={styles.dividerLine} />
             </View>
+
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleLogin}
+              disabled={loading}
+            >
+              <Ionicons name="logo-google" size={18} color={COLORS.white} style={styles.googleIcon} />
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            </TouchableOpacity>
             
             <View style={styles.registerContainer}>
               <Text style={styles.registerText}>Don't have an account? </Text>
@@ -265,6 +297,23 @@ const styles = StyleSheet.create({
     color: COLORS.gray500,
     paddingHorizontal: SPACING.m,
     fontSize: 14,
+  },
+  googleButton: {
+    backgroundColor: COLORS.gray800,
+    borderRadius: 8,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.l,
+    flexDirection: 'row',
+  },
+  googleIcon: {
+    marginRight: SPACING.s,
+  },
+  googleButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
   registerContainer: {
     flexDirection: 'row',

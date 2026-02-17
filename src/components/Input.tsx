@@ -46,7 +46,7 @@ const Input: React.FC<InputProps> = ({
         style={[
           styles.inputContainer,
           isFocused && styles.focusedInput,
-          error && styles.errorInput,
+          !!error && styles.errorInput,
         ]}
       >
         {leftIcon && <View style={styles.leftIcon}>{leftIcon}</View>}

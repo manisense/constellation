@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { ActivityIndicator, View } from 'react-native';
 import { RootStackParamList } from '../types/index';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
@@ -171,26 +172,15 @@ const AppStack = () => {
 
 // Main Navigation Stack
 const AppNavigator = () => {
-  const { user, userStatus, loading, refreshUserStatus } = useAuth();
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  
-  // Effect to handle null userStatus when user is authenticated
-  useEffect(() => {
-    const handleNullStatus = async () => {
-      if (user && userStatus === null && !isRefreshing) {
-        console.log("User is authenticated but status is null, refreshing status...");
-        setIsRefreshing(true);
-        await refreshUserStatus();
-        setIsRefreshing(false);
-      }
-    };
-    
-    handleNullStatus();
-  }, [user, userStatus, isRefreshing]);
+  const { user, userStatus, loading } = useAuth();
   
   // If still loading or refreshing, show loading indicator
-  if (loading || isRefreshing) {
-    return null;
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background }}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    );
   }
   
   // First check if user is authenticated - this ensures auth screens come first
@@ -221,7 +211,7 @@ const AppNavigator = () => {
       console.log("Constellation complete, showing AppStack");
       return <AppStack />;
     case null:
-      // If status is still null after refresh attempt, default to OnboardingStack
+      // Never render blank while status resolves; default to onboarding
       console.log("Status is null, defaulting to OnboardingStack");
       return <OnboardingStack />;
     default:

@@ -15,6 +15,7 @@ interface ButtonProps extends TouchableOpacityProps {
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'outline';
   size?: 'small' | 'medium' | 'large';
+  icon?: React.ReactNode;
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
@@ -26,6 +27,7 @@ const Button: React.FC<ButtonProps> = ({
   onPress,
   variant = 'primary',
   size = 'medium',
+  icon,
   loading = false,
   disabled = false,
   style,
@@ -94,7 +96,10 @@ const Button: React.FC<ButtonProps> = ({
           color={variant === 'outline' ? COLORS.primary : COLORS.white} 
         />
       ) : (
-        <Text style={[getTextStyle(), textStyle]}>{title}</Text>
+        <>
+          {icon}
+          <Text style={[getTextStyle(), icon ? styles.textWithIcon : null, textStyle]}>{title}</Text>
+        </>
       )}
     </TouchableOpacity>
   );
@@ -133,6 +138,9 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: FONTS.button,
     fontWeight: 'bold',
+  },
+  textWithIcon: {
+    marginLeft: SPACING.xs,
   },
   // Sizes
   smallButton: {

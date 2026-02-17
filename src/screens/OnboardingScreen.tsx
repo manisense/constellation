@@ -171,15 +171,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ navigation }) => {
           />
         </View>
       </View>
-      <View style={styles.bottomSection}>
-          <TouchableOpacity
-            style={styles.signOutButton}
-            onPress={handleSignOut}
-          >
-            <Ionicons name="log-out-outline" size={20} color={COLORS.white} style={styles.buttonIcon} />
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
+    
     </Screen>
   );
 };

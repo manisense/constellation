@@ -3,16 +3,17 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "npx react-native start --host 0.0.0.0 --port 8081",
+    "start": "npm run metro:cleanport && npx react-native start --host 0.0.0.0 --port 8081",
     "android": "npm run android:wifi && (npm run android:metro >/tmp/constellation-metro.log 2>&1 &) && npm run android:install && npm run android:launch && npm run android:logs",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "prebuild": "expo prebuild --clean",
-    "dev-client": "npx react-native start --host 0.0.0.0 --port 8081",
+    "dev-client": "npm run metro:cleanport && npx react-native start --host 0.0.0.0 --port 8081",
     "android:install": "cd android && ./gradlew installDebug",
     "android:wifi": "adb connect ${ANDROID_DEVICE:-192.168.0.158}:5555",
-    "android:launch": "adb shell am start -n com.constellation.app/.MainActivity",
-    "android:metro": "npx react-native start --host 0.0.0.0 --port 8081",
+    "android:launch": "adb reverse tcp:8081 tcp:8081 && adb shell am start -n com.constellation.app/.MainActivity",
+    "android:metro": "npm run metro:cleanport && npx react-native start --host 0.0.0.0 --port 8081",
+    "metro:cleanport": "sh -c 'pids=$(lsof -ti tcp:8081); if [ -n \"$pids\" ]; then kill -9 $pids; fi'",
     "android:logs": "sh -c 'tail -n 80 -f /tmp/constellation-metro.log & npx react-native log-android'"
   },
   "dependencies": {
@@ -42,7 +43,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
-    "@react-native/metro-config": "^0.84.0",
+    "@react-native/metro-config": "^0.72.12",
     "@types/react": "~18.2.14",
     "typescript": "^5.1.3"
   },

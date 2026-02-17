@@ -20,11 +20,8 @@ const MainApp = () => {
 
   // Show loading screen while initializing
   if (loading) {
-    console.log("App is loading...");
     return <LoadingScreen />;
   }
-
-  console.log("App loaded, rendering AppNavigator");
   
   // AppNavigator will first check if user is authenticated
   // If not authenticated, it will show auth screens (Welcome, Login, Register)

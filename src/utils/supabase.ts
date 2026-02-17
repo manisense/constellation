@@ -2,11 +2,12 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 import { Alert } from "react-native";
+import * as AuthSession from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
 
-// Use hardcoded values from .env file since process.env isn't working correctly
-const supabaseUrl = "https://ppipubzwklhrfhzsdjkl.supabase.co";
+const supabaseUrl = "https://xblnqfcghzhjbtiunfax.supabase.co";
 const supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwaXB1Ynp3a2xocmZoenNkamtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE1ODQ1NzAsImV4cCI6MjA1NzE2MDU3MH0.z7ZNkjWaiVhbcErmOFm3ZBIp62gs25D5OuVF5qRPS9g";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhibG5xZmNnaHpoamJ0aXVuZmF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNTA1MzIsImV4cCI6MjA4NjkyNjUzMn0.Vcj50zM5zDZPaWrnQ5G0jlvCeVeADYpwrMmBf29g0ts";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -207,15 +208,84 @@ export const signInWithEmail = async (email: string, password: string) => {
 
 export const signInWithGoogle = async () => {
   try {
+    const redirectTo = AuthSession.makeRedirectUri({
+      scheme: "com.constellation.app",
+      path: "auth/callback",
+    });
+
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: "constellation://auth/callback",
+        redirectTo,
+        skipBrowserRedirect: true,
       },
     });
 
     if (error) throw error;
-    return { data, error: null };
+
+    if (!data?.url) {
+      throw new Error("Failed to initialize Google OAuth flow");
+    }
+
+    const authResult = await WebBrowser.openAuthSessionAsync(
+      data.url,
+      redirectTo
+    );
+
+    if (authResult.type !== "success" || !authResult.url) {
+      throw new Error("Google sign-in was cancelled or did not complete");
+    }
+
+    const callbackUrl = new URL(authResult.url);
+
+    const hashParams = new URLSearchParams(
+      callbackUrl.hash?.startsWith("#")
+        ? callbackUrl.hash.slice(1)
+        : callbackUrl.hash || ""
+    );
+
+    const code = callbackUrl.searchParams.get("code") || hashParams.get("code");
+    const callbackError =
+      callbackUrl.searchParams.get("error_description") ||
+      callbackUrl.searchParams.get("error") ||
+      hashParams.get("error_description") ||
+      hashParams.get("error");
+
+    if (callbackError) {
+      throw new Error(callbackError);
+    }
+
+    if (code) {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.exchangeCodeForSession(code);
+
+      if (sessionError) throw sessionError;
+
+      return { data: sessionData, error: null };
+    }
+
+    const accessToken =
+      callbackUrl.searchParams.get("access_token") ||
+      hashParams.get("access_token");
+    const refreshToken =
+      callbackUrl.searchParams.get("refresh_token") ||
+      hashParams.get("refresh_token");
+
+    if (accessToken && refreshToken) {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+      if (sessionError) throw sessionError;
+
+      return { data: sessionData, error: null };
+    }
+
+    throw new Error(
+      "No authorization code or session tokens received from Google"
+    );
   } catch (error) {
     return { data: null, error };
   }
@@ -490,11 +560,24 @@ export const joinConstellation = async (inviteCode: string) => {
       }
     }
 
-    return { data, error: null };
+    if (data && typeof data === "object") {
+      return { data, error: null };
+    }
+
+    return {
+      data: {
+        success: Boolean(data),
+      },
+      error: null,
+    };
   } catch (error: any) {
     console.error("Exception in joinConstellation:", error.message || error);
     return { data: null, error };
   }
+};
+
+export const joinConstellationWithCode = async (inviteCode: string) => {
+  return joinConstellation(inviteCode);
 };
 
 // Chat functions

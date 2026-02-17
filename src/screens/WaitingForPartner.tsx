@@ -31,7 +31,6 @@ type WaitingForPartnerProps = {
 const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route }) => {
   const { user, inviteCode: contextInviteCode, refreshUserStatus } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [subscription, setSubscription] = useState<any>(null);
   const [dots, setDots] = useState('.');
   const pulseAnim = new Animated.Value(1);
   
@@ -72,6 +71,8 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
   useEffect(() => {
     if (!user) return;
 
+    let localSubscription: any = null;
+
     const setupSubscription = async () => {
       try {
         // Get user's constellation ID
@@ -89,7 +90,7 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
         const constellationId = memberData.constellation_id;
 
         // Subscribe to changes in constellation_members table
-        const newSubscription = supabase
+        localSubscription = supabase
           .channel(`constellation_members:constellation_id=eq.${constellationId}`)
           .on('postgres_changes', {
             event: 'INSERT',
@@ -101,8 +102,6 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
             refreshUserStatus();
           })
           .subscribe();
-
-        setSubscription(newSubscription);
       } catch (error) {
         console.error('Error setting up subscription:', error);
       }
@@ -112,20 +111,24 @@ const WaitingForPartner: React.FC<WaitingForPartnerProps> = ({ navigation, route
 
     // Clean up subscription
     return () => {
-      if (subscription) {
-        subscription.unsubscribe();
+      if (localSubscription) {
+        localSubscription.unsubscribe();
       }
     };
-  }, [user]);
+  }, [user, refreshUserStatus]);
 
   // Periodically check status in case realtime fails
   useEffect(() => {
+    if (!user) {
+      return;
+    }
+
     const interval = setInterval(() => {
       refreshUserStatus();
     }, 10000); // Check every 10 seconds
 
     return () => clearInterval(interval);
-  }, []);
+  }, [user, refreshUserStatus]);
 
   const handleCopyCode = () => {
     if (!inviteCode) return;
