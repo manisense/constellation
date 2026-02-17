@@ -1,19 +1,10 @@
 import React from 'react';
-import { 
-  TouchableOpacity, 
-  Text, 
-  StyleSheet, 
-  ActivityIndicator,
-  TouchableOpacityProps,
-  ViewStyle,
-  TextStyle
-} from 'react-native';
+import { TouchableOpacity, Text, ActivityIndicator, TouchableOpacityProps } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 
 interface ButtonProps extends TouchableOpacityProps {
   title: string;
@@ -23,9 +14,8 @@ interface ButtonProps extends TouchableOpacityProps {
   icon?: React.ReactNode;
   loading?: boolean;
   disabled?: boolean;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
   className?: string;
+  textClassName?: string;
 }
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
@@ -38,8 +28,7 @@ const Button: React.FC<ButtonProps> = ({
   icon,
   loading = false,
   disabled = false,
-  style,
-  textStyle,
+  textClassName,
   className,
   onPressIn,
   onPressOut,
@@ -51,59 +40,29 @@ const Button: React.FC<ButtonProps> = ({
     transform: [{ scale: scale.value }],
   }));
 
-  // Determine button styles based on variant
-  const getButtonStyle = () => {
-    switch (variant) {
-      case 'primary':
-        return styles.primaryButton;
-      case 'secondary':
-        return styles.secondaryButton;
-      case 'outline':
-        return styles.outlineButton;
-      default:
-        return styles.primaryButton;
-    }
-  };
 
-  // Determine text styles based on variant
-  const getTextStyle = () => {
-    switch (variant) {
-      case 'primary':
-        return styles.primaryText;
-      case 'secondary':
-        return styles.secondaryText;
-      case 'outline':
-        return styles.outlineText;
-      default:
-        return styles.primaryText;
-    }
-  };
-
-  // Determine button size
-  const getButtonSize = () => {
-    switch (size) {
-      case 'small':
-        return styles.smallButton;
-      case 'medium':
-        return styles.mediumButton;
-      case 'large':
-        return styles.largeButton;
-      default:
-        return styles.mediumButton;
-    }
-  };
+  // NativeWind utility classes for variant/size
+  const base = 'rounded-ios flex-row items-center justify-center';
+  const variantClass =
+    variant === 'secondary'
+      ? 'bg-secondary'
+      : variant === 'outline'
+      ? 'bg-transparent border border-primary'
+      : 'bg-primary';
+  const textVariantClass =
+    variant === 'outline' ? 'text-primary font-bold' : 'text-white font-bold';
+  const sizeClass =
+    size === 'small'
+      ? 'py-1 px-4 h-10'
+      : size === 'large'
+      ? 'py-4 px-8 h-14'
+      : 'py-2 px-6 h-12';
+  const disabledClass = disabled ? 'opacity-50' : '';
 
   return (
     <AnimatedTouchableOpacity
-      className={className}
-      style={[
-        animatedStyle,
-        styles.button,
-        getButtonStyle(),
-        getButtonSize(),
-        disabled && styles.disabledButton,
-        style,
-      ]}
+      className={`${base} ${variantClass} ${sizeClass} ${disabledClass} ${className || ''}`}
+      style={animatedStyle}
       onPress={onPress}
       onPressIn={(event) => {
         scale.value = withSpring(0.97, {
@@ -126,77 +85,15 @@ const Button: React.FC<ButtonProps> = ({
       {...rest}
     >
       {loading ? (
-        <ActivityIndicator 
-          size="small" 
-          color={variant === 'outline' ? COLORS.primary : COLORS.white} 
-        />
+        <ActivityIndicator size="small" color={variant === 'outline' ? '#3E54AC' : '#fff'} />
       ) : (
         <>
           {icon}
-          <Text style={[getTextStyle(), icon ? styles.textWithIcon : null, textStyle]}>{title}</Text>
+          <Text className={`${textVariantClass} ${icon ? 'ml-1' : ''} ${textClassName || ''}`}>{title}</Text>
         </>
       )}
     </AnimatedTouchableOpacity>
   );
 };
 
-const styles = StyleSheet.create({
-  button: {
-    borderRadius: SIZES.borderRadius,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  // Variants
-  primaryButton: {
-    backgroundColor: COLORS.primary,
-  },
-  secondaryButton: {
-    backgroundColor: COLORS.secondary,
-  },
-  outlineButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  // Text styles
-  primaryText: {
-    color: COLORS.white,
-    fontSize: FONTS.button,
-    fontWeight: 'bold',
-  },
-  secondaryText: {
-    color: COLORS.white,
-    fontSize: FONTS.button,
-    fontWeight: 'bold',
-  },
-  outlineText: {
-    color: COLORS.primary,
-    fontSize: FONTS.button,
-    fontWeight: 'bold',
-  },
-  textWithIcon: {
-    marginLeft: SPACING.xs,
-  },
-  // Sizes
-  smallButton: {
-    paddingVertical: SPACING.xs,
-    paddingHorizontal: SPACING.m,
-    height: SIZES.buttonHeight - 16,
-  },
-  mediumButton: {
-    paddingVertical: SPACING.s,
-    paddingHorizontal: SPACING.l,
-    height: SIZES.buttonHeight,
-  },
-  largeButton: {
-    paddingVertical: SPACING.m,
-    paddingHorizontal: SPACING.xl,
-    height: SIZES.buttonHeight + 8,
-  },
-  // States
-  disabledButton: {
-    opacity: 0.5,
-  },
-});
-
-export default Button; 
+export default Button;

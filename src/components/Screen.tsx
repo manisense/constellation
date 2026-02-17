@@ -1,14 +1,5 @@
 import React from 'react';
-import {
-  View,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  KeyboardAvoidingView,
-  ScrollView,
-  Platform,
-} from 'react-native';
-import { COLORS } from '../constants/theme';
+import { View, SafeAreaView, StatusBar, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
 import Header from './Header';
 import { useAuth } from '../provider/AuthProvider';
 
@@ -70,15 +61,15 @@ const Screen: React.FC<ScreenProps> = ({
   };
 
   return (
-    <View style={styles.mainContainer}>
+    <View className="flex-1 bg-background">
       <StatusBar
         barStyle="light-content"
-        backgroundColor={COLORS.gray900}
+        backgroundColor="#212121"
         translucent={true}
       />
       {/* SafeAreaView for top inset (status bar) */}
-      <SafeAreaView style={styles.safeAreaTop} />
-      
+      <SafeAreaView className="flex-0 bg-gray-900 pt-0" />
+
       {/* Header */}
       {showHeader && (
         <Header
@@ -88,41 +79,13 @@ const Screen: React.FC<ScreenProps> = ({
           showNotification={shouldShowNotification}
         />
       )}
-      
+
       {/* Main content */}
-      <SafeAreaView style={styles.safeAreaContent}>
+      <SafeAreaView className="flex-1 bg-background">
         {renderContent()}
       </SafeAreaView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  mainContainer: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  safeAreaTop: {
-    flex: 0,
-    backgroundColor: COLORS.gray900,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
-  },
-  safeAreaContent: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  contentContainer: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-});
-
-export default Screen; 
+export default Screen;

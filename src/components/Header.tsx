@@ -1,17 +1,6 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ViewStyle,
-  TextStyle,
-  Image,
-  Platform,
-  StatusBar,
-} from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
 import Logo from './Logo';
@@ -54,31 +43,28 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.leftContainer}>
-        {showLogo && (
-          <Logo size={32} />
-        )}
-        {title && <Text style={styles.title}>{title}</Text>}
+    <View className="flex-row justify-between items-center px-4 py-2 bg-gray-900 border-b border-gray-800 h-[60px] w-full z-50">
+      <View className="flex-row items-center">
+        {showLogo && <Logo size={32} />}
+        {title && <Text className="text-white text-lg font-bold ml-2">{title}</Text>}
       </View>
-
-      <View style={styles.rightContainer}>
+      <View className="flex-row items-center">
         {showNotification && (
           <TouchableOpacity
-            style={styles.iconButton}
+            className="ml-2 p-1"
             onPress={handleNotificationPress}
             accessibilityLabel="Notifications"
           >
-            <Ionicons name="notifications-outline" size={24} color={COLORS.white} />
+            <Ionicons name="notifications-outline" size={24} color="#fff" />
           </TouchableOpacity>
         )}
         {showProfile && (
           <TouchableOpacity
-            style={styles.iconButton}
+            className="ml-2 p-1"
             onPress={handleProfilePress}
             accessibilityLabel="Profile"
           >
-            <Ionicons name="person-outline" size={24} color={COLORS.white} />
+            <Ionicons name="person-outline" size={24} color="#fff" />
           </TouchableOpacity>
         )}
       </View>
@@ -86,44 +72,4 @@ const Header: React.FC<HeaderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.m,
-    paddingVertical: SPACING.s,
-    backgroundColor: COLORS.gray900,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray800,
-    height: 60,
-    width: '100%',
-    paddingTop: Platform.OS === 'android' ? SPACING.m : SPACING.s,
-    zIndex: 1000,
-  },
-  leftContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rightContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logo: {
-    width: 32,
-    height: 32,
-    marginRight: SPACING.s,
-  },
-  title: {
-    fontSize: FONTS.h4,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginLeft: SPACING.s,
-  },
-  iconButton: {
-    padding: SPACING.xs,
-    marginLeft: SPACING.s,
-  },
-});
-
-export default Header; 
+export default Header;

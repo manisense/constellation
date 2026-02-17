@@ -1,13 +1,5 @@
 import React from 'react';
-import {
-  View,
-  StyleSheet,
-  ViewProps,
-  ViewStyle,
-  TouchableOpacity,
-  TouchableOpacityProps,
-} from 'react-native';
-import { COLORS, SHADOWS, SIZES, SPACING } from '../constants/theme';
+import { View, ViewProps, TouchableOpacity, TouchableOpacityProps } from 'react-native';
 
 interface CardProps extends ViewProps {
   children: React.ReactNode;
@@ -21,19 +13,16 @@ const Card: React.FC<CardProps> = ({
   variant = 'default',
   ...rest
 }) => {
-  const getCardStyle = () => {
-    switch (variant) {
-      case 'elevated':
-        return styles.elevatedCard;
-      case 'outlined':
-        return styles.outlinedCard;
-      default:
-        return styles.defaultCard;
-    }
-  };
-
+  // NativeWind utility classes for card variants
+  const base = 'rounded-ios p-4 bg-card';
+  const variantClass =
+    variant === 'elevated'
+      ? 'shadow-md shadow-black/30'
+      : variant === 'outlined'
+      ? 'border border-gray-700 bg-transparent'
+      : '';
   return (
-    <View style={[styles.card, getCardStyle(), style]} {...rest}>
+    <View className={`${base} ${variantClass}`} style={style} {...rest}>
       {children}
     </View>
   );
@@ -53,20 +42,17 @@ export const TouchableCard: React.FC<TouchableCardProps> = ({
   onPress,
   ...rest
 }) => {
-  const getCardStyle = () => {
-    switch (variant) {
-      case 'elevated':
-        return styles.elevatedCard;
-      case 'outlined':
-        return styles.outlinedCard;
-      default:
-        return styles.defaultCard;
-    }
-  };
-
+  const base = 'rounded-ios p-4 bg-card';
+  const variantClass =
+    variant === 'elevated'
+      ? 'shadow-md shadow-black/30'
+      : variant === 'outlined'
+      ? 'border border-gray-700 bg-transparent'
+      : '';
   return (
     <TouchableOpacity
-      style={[styles.card, getCardStyle(), style]}
+      className={`${base} ${variantClass}`}
+      style={style}
       onPress={onPress}
       activeOpacity={0.8}
       {...rest}
@@ -76,23 +62,4 @@ export const TouchableCard: React.FC<TouchableCardProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  card: {
-    borderRadius: SIZES.borderRadius,
-    padding: SPACING.m,
-    backgroundColor: COLORS.card,
-  },
-  defaultCard: {
-    // Default card has no additional styles
-  },
-  elevatedCard: {
-    ...SHADOWS.medium,
-  },
-  outlinedCard: {
-    borderWidth: 1,
-    borderColor: COLORS.gray700,
-    backgroundColor: 'transparent',
-  },
-});
-
-export default Card; 
+export default Card;
