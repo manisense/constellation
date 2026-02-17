@@ -8,6 +8,11 @@ import {
   ViewStyle,
   TextStyle
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { COLORS, FONTS, SPACING, SIZES } from '../constants/theme';
 
 interface ButtonProps extends TouchableOpacityProps {
@@ -20,7 +25,10 @@ interface ButtonProps extends TouchableOpacityProps {
   disabled?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  className?: string;
 }
+
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 
 const Button: React.FC<ButtonProps> = ({
   title,
@@ -32,8 +40,17 @@ const Button: React.FC<ButtonProps> = ({
   disabled = false,
   style,
   textStyle,
+  className,
+  onPressIn,
+  onPressOut,
   ...rest
 }) => {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
   // Determine button styles based on variant
   const getButtonStyle = () => {
     switch (variant) {
@@ -77,8 +94,10 @@ const Button: React.FC<ButtonProps> = ({
   };
 
   return (
-    <TouchableOpacity
+    <AnimatedTouchableOpacity
+      className={className}
       style={[
+        animatedStyle,
         styles.button,
         getButtonStyle(),
         getButtonSize(),
@@ -86,6 +105,22 @@ const Button: React.FC<ButtonProps> = ({
         style,
       ]}
       onPress={onPress}
+      onPressIn={(event) => {
+        scale.value = withSpring(0.97, {
+          damping: 20,
+          stiffness: 280,
+          mass: 0.35,
+        });
+        onPressIn?.(event);
+      }}
+      onPressOut={(event) => {
+        scale.value = withSpring(1, {
+          damping: 20,
+          stiffness: 280,
+          mass: 0.35,
+        });
+        onPressOut?.(event);
+      }}
       disabled={disabled || loading}
       activeOpacity={0.7}
       {...rest}
@@ -101,7 +136,7 @@ const Button: React.FC<ButtonProps> = ({
           <Text style={[getTextStyle(), icon ? styles.textWithIcon : null, textStyle]}>{title}</Text>
         </>
       )}
-    </TouchableOpacity>
+    </AnimatedTouchableOpacity>
   );
 };
 

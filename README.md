@@ -15,6 +15,8 @@ It is a pair-only shared home where partners talk, play, remember, and grow toge
 
 - React Native 0.72 + Expo modules
 - TypeScript
+- NativeWind (Tailwind-style utility classes for React Native)
+- React Native Reanimated (motion + micro-interactions)
 - Supabase (Auth, Postgres, RLS, Storage, RPC)
 - Android native install flow via Gradle + ADB (no Expo Go)
 
@@ -25,6 +27,12 @@ It is a pair-only shared home where partners talk, play, remember, and grow toge
 ```bash
 npm install
 ```
+
+### 1.1) UI styling foundation
+
+- NativeWind is preconfigured via `babel.config.js`, `metro.config.js`, `tailwind.config.js`, and `global.css`.
+- App entry imports `global.css` in `App.tsx`.
+- Use `className` on React Native components for utility styling and keep theme consistency with shared tokens.
 
 ### 2) Configure Supabase
 
