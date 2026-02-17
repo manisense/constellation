@@ -1,39 +1,22 @@
-# Constellation
+# OurSpace (Constellation)
 
-Constellation is a relationship-focused React Native app where two users form a shared "constellation" and build connection through chat, memories, date plans, and quiz-driven star archetypes.
+OurSpace is a private romantic digital world for exactly two partners.
 
-## Project Idea
+It is not a social app, not a public platform, and not a dating app.
+It is a pair-only shared home where partners talk, play, remember, and grow together.
 
-The core product idea is: **turn relationship habits into a shared, visual progression system**.
+## Product Docs
 
-- Two users connect through an invite code.
-- They unlock a shared space (chat + activities).
-- Their constellation evolves as they interact.
-- Personality/quiz outcomes (Luminary/Navigator) personalize the experience.
-
-## Current Product Understanding
-
-The app is structured around 4 lifecycle states returned by backend status RPCs:
-
-- `no_constellation`: user signed in but not connected.
-- `waiting_for_partner`: user created constellation and is waiting.
-- `quiz_needed`: both users connected, quiz flow required.
-- `complete`: full app flow unlocked.
-
-Main modules currently implemented:
-
-- Auth: email/password + Google OAuth (Supabase).
-- Constellation management: create/join via invite code.
-- Chat: realtime-style message flow and image support.
-- Date plans and memories.
-- Profile and star type metadata.
+- Product vision and enhanced concept: `project.md`
+- Mandatory implementation guardrails for agents: `AGENTS.md`
+- Copilot-specific coding constraints: `.github/copilot-instructions.md`
 
 ## Tech Stack
 
 - React Native 0.72 + Expo modules
 - TypeScript
 - Supabase (Auth, Postgres, RLS, Storage, RPC)
-- Android native install flow via Gradle + ADB (without Expo Go)
+- Android native install flow via Gradle + ADB (no Expo Go)
 
 ## Setup
 
@@ -45,64 +28,50 @@ npm install
 
 ### 2) Configure Supabase
 
-Set your project URL and anon key in:
+Update project URL and anon key in:
 
 - `src/utils/supabase.ts`
 
-### 3) Initialize database schema
+### 3) Initialize database
 
-Run this once in Supabase SQL editor:
+Run in Supabase SQL editor:
 
 - `final_supabase_setup.sql`
 
-If your database was already initialized previously and you need the RLS recursion hotfix, run:
+If needed for existing databases:
 
 - `fix_constellation_members_rls_recursion.sql`
 
-### 4) Auth provider setup
+### 4) Enable auth providers
 
 In Supabase dashboard:
 
-- Enable Email provider.
-- Enable Google provider and set callback URL to your Supabase auth callback.
+- Enable Email provider
+- Enable Google provider and set callback URL correctly
 
-## Running on Android (Wi-Fi, native install)
+## Android Run (Primary Dev Flow)
 
 ```bash
 npm run android
 ```
 
-This workflow:
+This orchestrates Wi-Fi ADB connect, Metro startup, Gradle debug install, app launch, and logs.
 
-- connects ADB to device over Wi-Fi,
-- installs debug APK via Gradle (`installDebug`),
-- launches app via `adb shell am start`,
-- starts Metro/log stream.
+## Solo Test Mode
 
-No Expo Go is used.
+When only one tester/device is available, use Solo Test Mode from waiting flow.
 
-## Single-Device Development Mode
-
-When only one device is available, you can continue feature testing using **Solo Test Mode** from the waiting screen.
-
-- It unlocks app navigation for core feature development.
-- It avoids partner-required blocking states during local iteration.
-- Sign out clears solo-mode session state.
+- Unblocks development for partner-dependent screens
+- Keeps product vision pair-only while enabling local testing
+- Sign-out clears solo mode state
 
 ## Project Structure
 
-- `src/screens`: app feature screens
-- `src/navigation`: auth/app stack routing
-- `src/provider`: auth/session/status context
-- `src/components`: reusable UI primitives
-- `src/utils`: Supabase + helper logic
-- `final_supabase_setup.sql`: canonical backend bootstrap
-
-## Notes for Contributors
-
-- Prefer backend status RPCs (`get_user_constellation_status`) over ad hoc status derivation in screens.
-- Handle no-row membership queries with `.maybeSingle()` where membership is optional.
-- Keep navigation transitions stack-safe (avoid resetting to routes outside current navigator tree).
+- `src/screens` — feature screens
+- `src/navigation` — auth/app routing
+- `src/provider` — auth/session/status context
+- `src/components` — reusable UI primitives
+- `src/utils` — Supabase and utility helpers
 
 ## License
 
