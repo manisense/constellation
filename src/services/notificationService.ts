@@ -7,13 +7,54 @@ import {
 } from "../utils/supabase";
 
 let isOneSignalInitialized = false;
+let hasPushSubscriptionObserver = false;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const getPushPlatform = (): NotificationPlatform =>
   Platform.OS === "ios" ? "ios" : "android";
 
-const getOneSignalAppId = () => process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID;
+const getOneSignalAppId = () =>
+  process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID || process.env.ONESIGNAL_APP_ID;
+
+const enableOneSignalDebugLogs = () => {
+  const oneSignalAny: any = OneSignal as any;
+
+  if (typeof oneSignalAny?.Debug?.setLogLevel === "function") {
+    oneSignalAny.Debug.setLogLevel(6);
+    return;
+  }
+
+  if (typeof oneSignalAny?.setLogLevel === "function") {
+    oneSignalAny.setLogLevel(6, 0);
+  }
+};
+
+const addPushSubscriptionObserver = () => {
+  if (hasPushSubscriptionObserver) {
+    return;
+  }
+
+  const pushSubscription: any = (OneSignal as any)?.User?.pushSubscription;
+  if (!pushSubscription) {
+    return;
+  }
+
+  const onChange = async () => {
+    await syncCurrentOneSignalPushDevice();
+  };
+
+  if (typeof pushSubscription.addObserver === "function") {
+    pushSubscription.addObserver(onChange);
+    hasPushSubscriptionObserver = true;
+    return;
+  }
+
+  if (typeof pushSubscription.addEventListener === "function") {
+    pushSubscription.addEventListener("change", onChange);
+    hasPushSubscriptionObserver = true;
+  }
+};
 
 export const initializeOneSignal = async () => {
   const appId = getOneSignalAppId();
@@ -26,11 +67,14 @@ export const initializeOneSignal = async () => {
   }
 
   if (isOneSignalInitialized) {
+    addPushSubscriptionObserver();
     return;
   }
 
+  enableOneSignalDebugLogs();
   OneSignal.initialize(appId);
   OneSignal.Notifications.requestPermission(true);
+  addPushSubscriptionObserver();
   isOneSignalInitialized = true;
 };
 
