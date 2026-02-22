@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, SafeAreaView, StatusBar, KeyboardAvoidingView, ScrollView, Platform, StyleSheet } from 'react-native';
+import { View, SafeAreaView, StatusBar, KeyboardAvoidingView, ScrollView, Platform, StyleSheet, ViewStyle } from 'react-native';
 import Header from './Header';
 import { useAuth } from '../provider/AuthProvider';
 
@@ -61,14 +61,14 @@ const Screen: React.FC<ScreenProps> = ({
   };
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1 bg-background" style={styles.rootContainer}>
       <StatusBar
         barStyle="light-content"
         backgroundColor="#212121"
         translucent={true}
       />
       {/* SafeAreaView for top inset (status bar) */}
-      <SafeAreaView className="flex-0 bg-gray-900 pt-0" />
+      <SafeAreaView className="flex-0 bg-gray-900 pt-0" style={styles.topSafeArea} />
 
       {/* Header */}
       {showHeader && (
@@ -81,7 +81,7 @@ const Screen: React.FC<ScreenProps> = ({
       )}
 
       {/* Main content */}
-      <SafeAreaView className="flex-1 bg-background">
+      <SafeAreaView className="flex-1 bg-background" style={styles.contentSafeArea}>
         {renderContent()}
       </SafeAreaView>
     </View>
@@ -89,6 +89,17 @@ const Screen: React.FC<ScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+    backgroundColor: '#121212',
+  },
+  topSafeArea: {
+    backgroundColor: '#212121',
+  },
+  contentSafeArea: {
+    flex: 1,
+    backgroundColor: '#121212',
+  },
   contentContainer: {
     flex: 1,
   },

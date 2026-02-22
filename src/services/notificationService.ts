@@ -6,6 +6,11 @@ import {
   NotificationPlatform,
 } from "../utils/supabase";
 
+const appConfig = require("../../app.json");
+const appExtra = appConfig?.expo?.extra || {};
+const oneSignalApi: any =
+  (OneSignal as any)?.OneSignal || (OneSignal as any)?.default || OneSignal;
+
 let isOneSignalInitialized = false;
 let hasPushSubscriptionObserver = false;
 
@@ -15,10 +20,12 @@ const getPushPlatform = (): NotificationPlatform =>
   Platform.OS === "ios" ? "ios" : "android";
 
 const getOneSignalAppId = () =>
-  process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID || process.env.ONESIGNAL_APP_ID;
+  process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ||
+  process.env.ONESIGNAL_APP_ID ||
+  appExtra.onesignalAppId;
 
 const enableOneSignalDebugLogs = () => {
-  const oneSignalAny: any = OneSignal as any;
+  const oneSignalAny: any = oneSignalApi;
 
   if (typeof oneSignalAny?.Debug?.setLogLevel === "function") {
     oneSignalAny.Debug.setLogLevel(6);
@@ -35,7 +42,7 @@ const addPushSubscriptionObserver = () => {
     return;
   }
 
-  const pushSubscription: any = (OneSignal as any)?.User?.pushSubscription;
+  const pushSubscription: any = oneSignalApi?.User?.pushSubscription;
   if (!pushSubscription) {
     return;
   }
@@ -56,6 +63,20 @@ const addPushSubscriptionObserver = () => {
   }
 };
 
+const initializeOneSignalSdk = (appId: string) => {
+  if (typeof oneSignalApi?.initialize === "function") {
+    oneSignalApi.initialize(appId);
+    return true;
+  }
+
+  if (typeof oneSignalApi?.setAppId === "function") {
+    oneSignalApi.setAppId(appId);
+    return true;
+  }
+
+  return false;
+};
+
 export const initializeOneSignal = async () => {
   const appId = getOneSignalAppId();
 
@@ -72,14 +93,29 @@ export const initializeOneSignal = async () => {
   }
 
   enableOneSignalDebugLogs();
-  OneSignal.initialize(appId);
-  OneSignal.Notifications.requestPermission(true);
+  const didInitialize = initializeOneSignalSdk(appId);
+  if (!didInitialize) {
+    console.warn(
+      "OneSignal SDK initialize API is unavailable. Push is disabled."
+    );
+    return;
+  }
+
+  if (typeof oneSignalApi?.Notifications?.requestPermission === "function") {
+    oneSignalApi.Notifications.requestPermission(true);
+  } else if (
+    typeof oneSignalApi?.promptForPushNotificationsWithUserResponse ===
+    "function"
+  ) {
+    oneSignalApi.promptForPushNotificationsWithUserResponse(() => undefined);
+  }
+
   addPushSubscriptionObserver();
   isOneSignalInitialized = true;
 };
 
 const getCurrentSubscriptionId = async (): Promise<string | null> => {
-  const pushSubscription: any = (OneSignal as any)?.User?.pushSubscription;
+  const pushSubscription: any = oneSignalApi?.User?.pushSubscription;
 
   if (!pushSubscription) {
     return null;

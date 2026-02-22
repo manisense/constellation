@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, ActivityIndicator, TouchableOpacityProps, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, ActivityIndicator, TouchableOpacityProps, TextStyle, StyleSheet, ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -62,10 +62,34 @@ const Button: React.FC<ButtonProps> = ({
       : 'py-2 px-6 h-12';
   const disabledClass = disabled ? 'opacity-50' : '';
 
+  // StyleSheet fallbacks (work even when NativeWind classes don't resolve)
+  const fallbackContainerStyle: ViewStyle = {
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: size === 'small' ? 40 : size === 'large' ? 56 : 48,
+    paddingHorizontal: size === 'small' ? 16 : size === 'large' ? 32 : 24,
+    backgroundColor:
+      variant === 'secondary'
+        ? '#655DBB'
+        : variant === 'outline'
+        ? 'transparent'
+        : '#3E54AC',
+    borderWidth: variant === 'outline' ? 1 : 0,
+    borderColor: variant === 'outline' ? '#3E54AC' : 'transparent',
+    opacity: disabled ? 0.5 : 1,
+  };
+  const fallbackTextStyle: TextStyle = {
+    color: variant === 'outline' ? '#3E54AC' : '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  };
+
   return (
     <AnimatedTouchableOpacity
       className={`${base} ${variantClass} ${sizeClass} ${disabledClass} ${className || ''}`}
-      style={[animatedStyle, style]}
+      style={[fallbackContainerStyle, animatedStyle, style]}
       onPress={onPress}
       onPressIn={(event) => {
         scale.value = withSpring(0.97, {
@@ -94,7 +118,7 @@ const Button: React.FC<ButtonProps> = ({
           {icon}
           <Text
             className={`${textVariantClass} ${icon ? 'ml-1' : ''} ${textClassName || ''}`}
-            style={textStyle}
+            style={[fallbackTextStyle, textStyle]}
           >
             {title}
           </Text>

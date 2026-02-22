@@ -56,6 +56,9 @@
     ],
     "scheme": "com.constellation.app",
     "extra": {
+      "supabaseUrl": "https://xblnqfcghzhjbtiunfax.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhibG5xZmNnaHpoamJ0aXVuZmF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNTA1MzIsImV4cCI6MjA4NjkyNjUzMn0.Vcj50zM5zDZPaWrnQ5G0jlvCeVeADYpwrMmBf29g0ts",
+      "onesignalAppId": "f72d8273-6f73-40e8-9a19-f58f1dcba4ff",
       "eas": {
         "projectId": "your-project-id"
       }

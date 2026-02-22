@@ -5,16 +5,23 @@ import { Alert } from "react-native";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 
-const getRequiredEnv = (key: string) => {
-  const value = process.env[key];
+const appConfig = require("../../app.json");
+const appExtra = appConfig?.expo?.extra || {};
+
+const getRequiredEnv = (key: string, fallbackKey?: string) => {
+  const value =
+    process.env[key] || (fallbackKey ? appExtra[fallbackKey] : undefined);
   if (!value) {
     throw new Error(`Missing required environment variable: ${key}`);
   }
   return value;
 };
 
-const supabaseUrl = getRequiredEnv("EXPO_PUBLIC_SUPABASE_URL");
-const supabaseAnonKey = getRequiredEnv("EXPO_PUBLIC_SUPABASE_ANON_KEY");
+const supabaseUrl = getRequiredEnv("EXPO_PUBLIC_SUPABASE_URL", "supabaseUrl");
+const supabaseAnonKey = getRequiredEnv(
+  "EXPO_PUBLIC_SUPABASE_ANON_KEY",
+  "supabaseAnonKey"
+);
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {

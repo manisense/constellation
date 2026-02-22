@@ -1,9 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, Image, ImageBackground, SafeAreaView, StatusBar } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
 import { COLORS, FONTS, SPACING } from '../constants/theme';
-import Screen from '../components/Screen';
 import Button from '../components/Button';
 
 type WelcomeScreenProps = {
@@ -16,7 +15,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
       source={require('../assets/images/night-sky.png')}
       style={styles.backgroundImage}
     >
-      <Screen showHeader={true} showLogo={true}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
           <View style={styles.logoContainer}>
             <Image
@@ -37,28 +37,27 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ navigation }) => {
           <View style={styles.buttonContainer}>
             <Button
               title="Sign In"
-              onPress={() => {
-                navigation.navigate('Login');
-              }}
+              onPress={() => navigation.navigate('Login')}
               style={styles.button}
             />
             <Button
               title="Create Account"
-              onPress={() => {
-                navigation.navigate('Register');
-              }}
+              onPress={() => navigation.navigate('Register')}
               variant="outline"
               style={styles.secondaryButton}
             />
           </View>
         </View>
-      </Screen>
+      </SafeAreaView>
     </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
   backgroundImage: {
+    flex: 1,
+  },
+  safeArea: {
     flex: 1,
   },
   container: {

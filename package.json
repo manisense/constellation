@@ -3,18 +3,18 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "npm run metro:cleanport && npx react-native start --host 0.0.0.0 --port 8081",
-    "android": "npm run android:wifi && (npm run android:metro >/tmp/constellation-metro.log 2>&1 &) && npm run android:install && npm run android:launch && npm run android:logs",
+    "start": "npm run metro:cleanport && sh -c 'set -a; [ -f ./.env ] && . ./.env; set +a; npx react-native start --host 0.0.0.0 --port 8081 --reset-cache'",
+    "android": "npm run android:wifi && npm run metro:cleanport && (sh -c 'set -a; [ -f ./.env ] && . ./.env; set +a; npx react-native start --host 0.0.0.0 --port 8081 --reset-cache' >/tmp/constellation-metro.log 2>&1 &) && sleep 4 && npm run android:install && npm run android:launch && npm run android:logs",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "prebuild": "expo prebuild --clean",
-    "dev-client": "npm run metro:cleanport && npx react-native start --host 0.0.0.0 --port 8081",
+    "dev-client": "npm run metro:cleanport && sh -c 'set -a; [ -f ./.env ] && . ./.env; set +a; npx react-native start --host 0.0.0.0 --port 8081 --reset-cache'",
     "android:install": "cd android && ./gradlew installDebug",
     "android:wifi": "adb connect ${ANDROID_DEVICE:-192.168.0.158}:5555",
     "android:launch": "adb reverse tcp:8081 tcp:8081 && adb shell am start -n com.constellation.app/.MainActivity",
-    "android:metro": "npm run metro:cleanport && npx react-native start --host 0.0.0.0 --port 8081",
-    "metro:cleanport": "sh -c 'pids=$(lsof -ti tcp:8081); if [ -n \"$pids\" ]; then kill -9 $pids; fi'",
-    "android:logs": "sh -c 'tail -n 80 -f /tmp/constellation-metro.log & npx react-native log-android'"
+    "android:metro": "npm run metro:cleanport && sh -c 'set -a; [ -f ./.env ] && . ./.env; set +a; npx react-native start --host 0.0.0.0 --port 8081 --reset-cache'",
+    "metro:cleanport": "sh -c 'pkill -f \"react-native start\" 2>/dev/null; sleep 1; pids=$(lsof -ti tcp:8081); if [ -n \"$pids\" ]; then kill -9 $pids 2>/dev/null; fi; true'",
+    "android:logs": "npx react-native log-android"
   },
   "dependencies": {
     "@expo/vector-icons": "^13.0.0",
