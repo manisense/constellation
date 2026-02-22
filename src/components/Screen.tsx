@@ -74,9 +74,6 @@ const Screen: React.FC<ScreenProps> = ({
       {showHeader && (
         <Header
           title={headerTitle}
-          showLogo={showLogo}
-          showProfile={shouldShowProfile}
-          showNotification={shouldShowNotification}
         />
       )}
 

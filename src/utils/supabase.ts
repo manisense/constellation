@@ -765,7 +765,7 @@ export const getPartnerProfile = async (constellationId: string) => {
         .eq("constellation_id", constellationId)
         .neq("user_id", userId)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error("Error getting partner profile directly:", error);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Clipboard, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Card from '../components/Card';
@@ -14,10 +14,19 @@ type HomeScreenProps = {
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, userStatus, inviteCode } = useAuth();
   const [roomState, setRoomState] = useState<SharedRoomState | null>(null);
   const [partnerName, setPartnerName] = useState('Your partner');
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyCode = () => {
+    if (inviteCode) {
+      Clipboard.setString(inviteCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const loadRoom = async () => {
     try {
@@ -65,11 +74,25 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   }
 
   if (!roomState) {
+    const isWaiting = userStatus === 'waiting_for_partner';
     return (
       <Screen showHeader headerTitle="Our Room">
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle}>Your room appears after pairing</Text>
-          <Text style={styles.emptyText}>Create or join your private constellation to unlock your shared home.</Text>
+          <Text style={styles.emptyTitle}>
+            {isWaiting ? 'Waiting for your partner' : 'Your room appears after pairing'}
+          </Text>
+          <Text style={styles.emptyText}>
+            {isWaiting
+              ? 'Share your invite code with your partner to unlock your shared home.'
+              : 'Create or join a private constellation to unlock your shared home.'}
+          </Text>
+          {isWaiting && inviteCode && (
+            <TouchableOpacity style={styles.inviteCodeBox} onPress={handleCopyCode}>
+              <Text style={styles.inviteCodeLabel}>Your invite code</Text>
+              <Text style={styles.inviteCode}>{inviteCode}</Text>
+              <Text style={styles.inviteCodeHint}>{copied ? 'Copied!' : 'Tap to copy'}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </Screen>
     );
@@ -170,6 +193,32 @@ const styles = StyleSheet.create({
   emptyText: {
     color: COLORS.gray300,
     textAlign: 'center',
+    marginBottom: SPACING.l,
+  },
+  inviteCodeBox: {
+    marginTop: SPACING.m,
+    padding: SPACING.l,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: COLORS.card,
+  },
+  inviteCodeLabel: {
+    color: COLORS.gray300,
+    fontSize: FONTS.caption,
+    marginBottom: SPACING.xs,
+  },
+  inviteCode: {
+    color: COLORS.white,
+    fontSize: FONTS.h2,
+    fontWeight: '700',
+    letterSpacing: 4,
+    marginBottom: SPACING.xs,
+  },
+  inviteCodeHint: {
+    color: COLORS.primary,
+    fontSize: FONTS.caption,
   },
   heroCard: {
     padding: SPACING.l,

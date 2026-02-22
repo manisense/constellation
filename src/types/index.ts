@@ -138,27 +138,33 @@ export interface PushDeviceRegistration {
 
 // Navigation types
 export type RootStackParamList = {
+  // Auth
   Welcome: undefined;
-  Onboarding: undefined;
-  CreateConstellation: undefined;
-  JoinConstellation: undefined;
-  Profile: undefined;
-  Quiz: undefined;
-  StarReveal: undefined;
-  Home: undefined;
-  Chat: undefined;
-  ConstellationView: undefined;
-  Settings: undefined;
   Login: undefined;
   Register: undefined;
   ForgotPassword: undefined;
-  WaitingForPartner: {
-    inviteCode?: string;
-  };
-  PhoneAuth: {
-    constellationId?: string;
-  };
-  // New screens
+
+  // Onboarding
+  Onboarding: undefined;
+  CreateConstellation: undefined;
+  JoinConstellation: undefined;
+  WaitingForPartner: { inviteCode?: string };
+  PhoneAuth: { constellationId?: string };
+
+  // Profile / settings (header icons)
+  Profile: undefined;
+  Settings: undefined;
+
+  // Post-quiz
+  Quiz: undefined;
+  StarReveal: undefined;
+
+  // Main tab root
+  Home: undefined;
+
+  // Stack screens accessible from within tabs
+  Chat: undefined;
+  ConstellationView: undefined;
   DatePlans: undefined;
   Memories: undefined;
   DailyRitual: undefined;
@@ -167,9 +173,11 @@ export type RootStackParamList = {
   VideoCall: undefined;
   CoupleGame: undefined;
   WatchTogether: undefined;
-  // Tab navigator screens
-  HomeTab: undefined;
+
+  // 5 bottom tab screens
   ChatTab: undefined;
-  ConstellationTab: undefined;
-  SettingsTab: undefined;
+  TogetherTab: undefined;
+  MemoriesTab: undefined;
+  PlayTab: undefined;
+  UniverseTab: undefined;
 };

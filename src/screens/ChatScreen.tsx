@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+/**
+ * ChatScreen — WhatsApp-style private chat between constellation partners.
+ *
+ * Features: text, image, voice note (record & play), file attachment,
+ * message reply/quote, emoji reactions, read receipts, voice/video call shortcuts.
+ */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,14 +18,16 @@ import {
   Image,
   Alert,
   Modal,
+  Pressable,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../types';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { useNavigation, NavigationProp } from '@react-navigation/native';
+import { Audio } from 'expo-av';
+import * as DocumentPicker from 'expo-document-picker';
+
 import { COLORS, FONTS, SPACING } from '../constants/theme';
-import Screen from '../components/Screen';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../provider/AuthProvider';
-import { Ionicons } from '@expo/vector-icons';
 import {
   Message,
   getConstellationMessages,
@@ -28,585 +36,552 @@ import {
   sendMessage,
   getPartnerProfile,
 } from '../utils/clientFixes';
+import { RootStackParamList } from '../types';
 
-type ChatScreenProps = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Reaction {
+  emoji: string;
+  count: number;
+  myReaction: boolean;
+}
+
+interface EnhancedMessage extends Message {
+  message_type?: 'text' | 'image' | 'voice_note' | 'file';
+  reply_to_message_id?: string | null;
+  file_name?: string;
+  file_size?: number;
+  file_url?: string;
+  voice_note_duration?: number;
+  seen_at?: string | null;
+  reactions?: Reaction[];
+  replyPreview?: string;
+}
+
+const REACTION_EMOJIS = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+const fmtDuration = (secs: number) => {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
+const fmtFileSize = (bytes: number) => {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+// ─── Read tick ────────────────────────────────────────────────────────────────
+
+const ReadTick: React.FC<{ seen: boolean }> = ({ seen }) => (
+  <Ionicons
+    name={seen ? 'checkmark-done' : 'checkmark'}
+    size={12}
+    color={seen ? '#53BDEB' : COLORS.gray600}
+    style={{ marginLeft: 3 }}
+  />
+);
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+const ChatScreen: React.FC = () => {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+
+  const [messages, setMessages] = useState<EnhancedMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [constellationId, setConstellationId] = useState<string | null>(null);
   const [partnerName, setPartnerName] = useState('Partner');
-  const [partnerStarType, setPartnerStarType] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [showImageModal, setShowImageModal] = useState(false);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
-  const [bondingStrength, setBondingStrength] = useState(0);
-  const [voiceSending, setVoiceSending] = useState(false);
+  const [quotedMessage, setQuotedMessage] = useState<EnhancedMessage | null>(null);
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
+
+  // Voice note
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
 
+  // ── Load ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (user) {
-      loadUserData();
-    }
-    
-    return () => {
-      // Cleanup will be handled by the setupMessageSubscription function
-    };
+    if (user) loadData();
+    return () => { soundRef.current?.unloadAsync(); };
   }, [user]);
 
-  const loadUserData = async () => {
+  const loadData = async () => {
     if (!user) return;
-    
     try {
-      console.log("Loading user data for chat...");
-      // Get user's constellation membership
-      const { data: memberData, error: memberError } = await supabase
+      const { data: memberData } = await supabase
         .from('constellation_members')
         .select('constellation_id')
         .eq('user_id', user.id)
         .maybeSingle();
-      
-      if (memberError) {
-        console.error('Error getting constellation membership:', memberError);
-        setLoading(false);
-        return;
-      }
 
-      if (!memberData || !memberData.constellation_id) {
-        console.log('No constellation membership found');
-        setConstellationId(null);
-        setPartnerName('Partner');
-        setPartnerStarType(null);
-        setMessages([]);
-        setLoading(false);
-        return;
-      }
-      
-      if (memberData && memberData.constellation_id) {
-        const constellationId = memberData.constellation_id;
-        console.log("Found constellation ID:", constellationId);
-        setConstellationId(constellationId);
-        
-        // Get initial messages using the improved function
-        try {
-          const messageData = await getConstellationMessages(constellationId);
-          console.log(`Loaded ${messageData.length} messages`);
-          setMessages(messageData);
-        } catch (error) {
-          console.error('Error fetching messages:', error);
-        }
-        
-        // Subscribe to new messages using the improved function
-        console.log("Setting up realtime subscription for messages...");
-        const cleanup = setupMessageSubscription(constellationId, (newMessage) => {
-          console.log("Received new message:", newMessage);
-          // Add new message to the list
-          setMessages(prevMessages => [...prevMessages, newMessage]);
-          // Scroll to bottom
-          setTimeout(() => {
-            flatListRef.current?.scrollToEnd({ animated: true });
-          }, 100);
-        });
-        
-        // Get partner info using the improved function
-        try {
-          const partnerProfile = await getPartnerProfile(constellationId);
-          if (partnerProfile) {
-            console.log("Partner profile:", partnerProfile);
-            setPartnerName(partnerProfile.name || 'Partner');
-            setPartnerStarType(partnerProfile.star_type || null);
-          } else {
-            console.log("No partner found in constellation");
-          }
-        } catch (error) {
-          console.error('Error fetching partner profile:', error);
-        }
-        
-        // Get constellation data including bonding strength
-        try {
-          const { data: constellationData, error: constellationError } = await supabase
-            .from('constellations')
-            .select('bonding_strength')
-            .eq('id', constellationId)
-            .single();
-            
-          if (!constellationError && constellationData) {
-            console.log("Constellation bonding strength:", constellationData.bonding_strength);
-            setBondingStrength(constellationData.bonding_strength || 0);
-          }
-        } catch (error) {
-          console.error('Error loading constellation data:', error);
-        }
-      } else {
-        console.log("No constellation found for user");
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
+      if (!memberData?.constellation_id) { setLoading(false); return; }
+
+      const cid = memberData.constellation_id;
+      setConstellationId(cid);
+
+      const [msgData, partnerProfile] = await Promise.all([
+        getConstellationMessages(cid),
+        getPartnerProfile(cid),
+      ]);
+
+      setMessages(msgData as EnhancedMessage[]);
+      if (partnerProfile) setPartnerName(partnerProfile.name || 'Partner');
+
+      setupMessageSubscription(cid, (msg) => {
+        setMessages((prev) => [...prev, msg as EnhancedMessage]);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      });
+
+      // Mark partner messages as seen
+      await supabase
+        .from('messages')
+        .update({ seen_at: new Date().toISOString() })
+        .eq('constellation_id', cid)
+        .neq('user_id', user.id)
+        .is('seen_at', null);
+    } catch (err) {
+      console.error('ChatScreen loadData:', err);
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Send text / image ────────────────────────────────────────────
   const handleSend = async () => {
     if ((!newMessage.trim() && !selectedImage) || !constellationId || !user) return;
-    
     try {
       setSending(true);
-      
-      // Use the improved sendMessage function
-      const success = await sendMessage(
-        constellationId,
-        newMessage.trim(),
-        selectedImage
-      );
-      
-      if (success) {
-        console.log("Message sent successfully");
-        
-        // Clear input and selected image
-        setNewMessage('');
-        setSelectedImage(null);
-        
-        // Update bonding strength locally
-        setBondingStrength(prev => Math.min(prev + 1, 100));
-      } else {
-        throw new Error('Failed to send message');
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
-    } finally {
-      setSending(false);
-    }
+      const ok = await sendMessage(constellationId, newMessage.trim(), selectedImage);
+      if (ok) { setNewMessage(''); setSelectedImage(null); setQuotedMessage(null); }
+    } catch { Alert.alert('Error', 'Failed to send.'); }
+    finally { setSending(false); }
   };
 
   const handlePickImage = async () => {
     const uri = await pickImage();
-    if (uri) {
-      setSelectedImage(uri);
-    }
+    if (uri) setSelectedImage(uri);
   };
 
-  const handleSendVoiceNote = async () => {
-    if (!constellationId || !user) {
-      return;
-    }
-
+  // ── File attachment ──────────────────────────────────────────────
+  const handlePickFile = async () => {
     try {
-      setVoiceSending(true);
-      const success = await sendMessage(constellationId, '🎤 Voice note', null);
+      const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+      if (result.canceled || !constellationId || !user) return;
+      const file = result.assets[0];
+      const ext = file.name.split('.').pop();
+      const path = `${constellationId}/${Date.now()}.${ext}`;
+      const resp = await fetch(file.uri);
+      const blob = await resp.blob();
+      const { error: upErr } = await supabase.storage.from('attachments').upload(path, blob);
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from('attachments').getPublicUrl(path);
+      await supabase.from('messages').insert({
+        constellation_id: constellationId,
+        user_id: user.id,
+        content: `📎 ${file.name}`,
+        message_type: 'file',
+        file_name: file.name,
+        file_size: file.size,
+        file_url: urlData.publicUrl,
+      });
+    } catch { Alert.alert('Error', 'Could not attach file.'); }
+  };
 
-      if (!success) {
-        throw new Error('Failed to send voice note');
+  // ── Voice recording ──────────────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording: rec } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      );
+      setRecording(rec);
+      setIsRecording(true);
+      setRecordingDuration(0);
+      recordingTimer.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
+    } catch { Alert.alert('Microphone', 'Could not access microphone.'); }
+  };
+
+  const stopRecording = async () => {
+    if (!recording || !constellationId || !user) return;
+    try {
+      clearInterval(recordingTimer.current!);
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      const duration = recordingDuration;
+      setRecording(null); setIsRecording(false); setRecordingDuration(0);
+      if (uri) {
+        const path = `${constellationId}/${Date.now()}.m4a`;
+        const resp = await fetch(uri);
+        const blob = await resp.blob();
+        await supabase.storage.from('attachments').upload(path, blob, { contentType: 'audio/m4a' });
+        const { data: urlData } = supabase.storage.from('attachments').getPublicUrl(path);
+        await supabase.from('messages').insert({
+          constellation_id: constellationId, user_id: user.id,
+          content: '🎤 Voice note', message_type: 'voice_note',
+          file_url: urlData.publicUrl, voice_note_duration: duration,
+        });
       }
-
-      setBondingStrength(prev => Math.min(prev + 1, 100));
-    } catch (error) {
-      Alert.alert('Error', 'Voice note could not be sent. Please try again.');
-    } finally {
-      setVoiceSending(false);
-    }
+    } catch { Alert.alert('Error', 'Could not save voice note.'); }
   };
 
-  const renderMessage = ({ item }: { item: Message }) => {
-    const isCurrentUser = item.user_id === user?.id;
-    
+  // ── Playback ─────────────────────────────────────────────────────
+  const handlePlayVoiceNote = async (msg: EnhancedMessage) => {
+    if (!msg.file_url) return;
+    if (playingId === msg.id) { await soundRef.current?.stopAsync(); setPlayingId(null); return; }
+    try {
+      soundRef.current?.unloadAsync();
+      const { sound } = await Audio.Sound.createAsync({ uri: msg.file_url });
+      soundRef.current = sound; setPlayingId(msg.id);
+      await sound.playAsync();
+      sound.setOnPlaybackStatusUpdate((s) => { if (s.isLoaded && s.didJustFinish) setPlayingId(null); });
+    } catch { Alert.alert('Error', 'Could not play audio.'); }
+  };
+
+  // ── Reactions ────────────────────────────────────────────────────
+  const handleReact = async (messageId: string, emoji: string) => {
+    if (!user) return;
+    setReactionTarget(null);
+    try {
+      await supabase.from('message_reactions').upsert(
+        { message_id: messageId, user_id: user.id, emoji },
+        { onConflict: 'message_id,user_id,emoji' },
+      );
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          const existing = m.reactions || [];
+          const found = existing.find((r) => r.emoji === emoji);
+          if (found) return { ...m, reactions: existing.map((r) => r.emoji === emoji ? { ...r, count: r.count + 1, myReaction: true } : r) };
+          return { ...m, reactions: [...existing, { emoji, count: 1, myReaction: true }] };
+        }),
+      );
+    } catch {}
+  };
+
+  // ── Render bubble ────────────────────────────────────────────────
+  const renderMessage = useCallback(({ item }: { item: EnhancedMessage }) => {
+    const isMe = item.user_id === user?.id;
     return (
-      <View
-        style={[
-          styles.messageContainer,
-          isCurrentUser ? styles.currentUserMessage : styles.otherUserMessage,
-        ]}
-      >
-        {item.image_url && (
-          <TouchableOpacity
-            onPress={() => {
-              setViewingImage(item.image_url || null);
-              setShowImageModal(true);
-            }}
-          >
-            <Image
-              source={{ uri: item.image_url }}
-              style={styles.messageImage}
-              resizeMode="cover"
-            />
-          </TouchableOpacity>
+      <View style={[styles.bubbleWrapper, isMe ? styles.bwRight : styles.bwLeft]}>
+        <Pressable
+          onLongPress={() => setReactionTarget(item.id)}
+          style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}
+        >
+          {/* Quote */}
+          {item.replyPreview && (
+            <View style={styles.quoteStrip}>
+              <Text style={styles.quoteText} numberOfLines={2}>{item.replyPreview}</Text>
+            </View>
+          )}
+
+          {/* Image */}
+          {item.image_url && (
+            <TouchableOpacity onPress={() => setViewingImage(item.image_url!)}>
+              <Image source={{ uri: item.image_url }} style={styles.msgImg} resizeMode="cover" />
+            </TouchableOpacity>
+          )}
+
+          {/* Voice note */}
+          {item.message_type === 'voice_note' && (
+            <TouchableOpacity style={styles.voiceRow} onPress={() => handlePlayVoiceNote(item)}>
+              <View style={styles.playBtn}>
+                <Ionicons name={playingId === item.id ? 'pause' : 'play'} size={18} color="#fff" />
+              </View>
+              <View style={styles.waveform}>
+                {Array.from({ length: 22 }).map((_, i) => (
+                  <View key={i} style={[styles.waveBar, { height: 4 + Math.abs(Math.sin(i * 0.7)) * 14 },
+                    playingId === item.id ? { backgroundColor: COLORS.luminary } : {}]} />
+                ))}
+              </View>
+              <Text style={styles.voiceDur}>{fmtDuration(item.voice_note_duration || 0)}</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* File */}
+          {item.message_type === 'file' && item.file_name && (
+            <View style={styles.fileCard}>
+              <MaterialIcons name="insert-drive-file" size={28} color={COLORS.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fileName} numberOfLines={1}>{item.file_name}</Text>
+                {item.file_size != null && <Text style={styles.fileSize}>{fmtFileSize(item.file_size)}</Text>}
+              </View>
+            </View>
+          )}
+
+          {/* Text */}
+          {item.content && item.message_type !== 'voice_note' && item.message_type !== 'file' && (
+            <Text style={styles.msgText}>{item.content}</Text>
+          )}
+
+          {/* Meta */}
+          <View style={styles.metaRow}>
+            <Text style={styles.msgTime}>{fmtTime(item.created_at)}</Text>
+            {isMe && <ReadTick seen={!!item.seen_at} />}
+          </View>
+        </Pressable>
+
+        {/* Reactions */}
+        {item.reactions && item.reactions.length > 0 && (
+          <View style={[styles.reactRow, isMe ? { justifyContent: 'flex-end' } : {}]}>
+            {item.reactions.map((r) => (
+              <TouchableOpacity key={r.emoji} onPress={() => handleReact(item.id, r.emoji)}
+                style={[styles.reactChip, r.myReaction && styles.reactChipMine]}>
+                <Text style={styles.reactEmoji}>{r.emoji}</Text>
+                {r.count > 1 && <Text style={styles.reactCount}>{r.count}</Text>}
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
-        <Text style={styles.messageText}>{item.content}</Text>
-        <Text style={styles.messageTime}>
-          {new Date(item.created_at).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Text>
       </View>
     );
-  };
+  }, [user, playingId]);
 
-  const renderBondingStrength = () => {
-    return (
-      <View style={styles.bondingContainer}>
-        <Text style={styles.bondingText}>Bonding Strength</Text>
-        <View style={styles.bondingBarContainer}>
-          <View 
-            style={[
-              styles.bondingBar, 
-              { width: `${bondingStrength}%` }
-            ]} 
-          />
-        </View>
-        <Text style={styles.bondingValue}>{bondingStrength}%</Text>
-      </View>
-    );
-  };
-
+  // ── Render ───────────────────────────────────────────────────────
   if (loading) {
-    return (
-      <Screen showHeader headerTitle="Chat">
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading chat...</Text>
-        </View>
-      </Screen>
-    );
+    return <View style={styles.loadingBox}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
   }
 
   return (
-    <Screen showHeader headerTitle={`Chat with ${partnerName}`}>
-      <View style={styles.container}>
-        {renderBondingStrength()}
-        
-        {messages.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="chatbubble-outline" size={64} color={COLORS.gray500} />
-            <Text style={styles.emptyText}>No messages yet</Text>
-            <Text style={styles.emptySubtext}>
-              {constellationId
-                ? `Start a conversation with your ${partnerStarType === 'luminary' ? 'Luminary' : 'Navigator'} partner`
-                : 'Join with your partner to start messaging'}
-            </Text>
+    <View style={styles.root}>
+      {/* Chat header */}
+      <View style={styles.chatHeader}>
+        <View style={styles.headerLeft}>
+          <View style={styles.partnerDot} />
+          <View>
+            <Text style={styles.partnerName}>{partnerName}</Text>
+            <Text style={styles.partnerSub}>In your constellation</Text>
           </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={messages}
-            keyExtractor={(item) => item.id}
-            renderItem={renderMessage}
-            contentContainerStyle={styles.messagesList}
-            onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-          />
-        )}
-        
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={100}
-          style={styles.inputContainer}
-        >
-          <View style={styles.callActionsRow}>
-            <TouchableOpacity style={styles.callActionPill} onPress={() => navigation.navigate('VoiceCall')}>
-              <Ionicons name="call-outline" size={16} color={COLORS.white} />
-              <Text style={styles.callActionText}>Voice</Text>
-            </TouchableOpacity>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={styles.callBtn} onPress={() => navigation.navigate('VoiceCall')}>
+            <Ionicons name="call-outline" size={20} color={COLORS.accent} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.callBtn} onPress={() => navigation.navigate('VideoCall')}>
+            <Ionicons name="videocam-outline" size={20} color={COLORS.accent} />
+          </TouchableOpacity>
+        </View>
+      </View>
 
-            <TouchableOpacity style={styles.callActionPill} onPress={() => navigation.navigate('VideoCall')}>
-              <Ionicons name="videocam-outline" size={16} color={COLORS.white} />
-              <Text style={styles.callActionText}>Video</Text>
-            </TouchableOpacity>
+      {/* Messages */}
+      {messages.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <Ionicons name="chatbubble-ellipses-outline" size={60} color={COLORS.gray800} />
+          <Text style={styles.emptyTitle}>Start the conversation</Text>
+          <Text style={styles.emptySub}>Just the two of you — always private.</Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={renderMessage}
+          contentContainerStyle={styles.msgList}
+          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
 
-            <TouchableOpacity
-              style={styles.callActionPill}
-              onPress={handleSendVoiceNote}
-              disabled={voiceSending || !constellationId}
-            >
-              {voiceSending ? (
-                <ActivityIndicator size="small" color={COLORS.white} />
-              ) : (
-                <Ionicons name="mic-outline" size={16} color={COLORS.white} />
-              )}
-              <Text style={styles.callActionText}>Voice Note</Text>
-            </TouchableOpacity>
+      {/* Reaction picker */}
+      <Modal transparent visible={!!reactionTarget} animationType="fade" onRequestClose={() => setReactionTarget(null)}>
+        <Pressable style={styles.reactOverlay} onPress={() => setReactionTarget(null)}>
+          <View style={styles.reactPicker}>
+            {REACTION_EMOJIS.map((emoji) => (
+              <TouchableOpacity key={emoji} style={styles.reactPickerItem}
+                onPress={() => reactionTarget && handleReact(reactionTarget, emoji)}>
+                <Text style={styles.reactPickerEmoji}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
+        </Pressable>
+      </Modal>
 
-          {selectedImage && (
-            <View style={styles.selectedImageContainer}>
-              <Image
-                source={{ uri: selectedImage }}
-                style={styles.selectedImage}
-                resizeMode="cover"
-              />
-              <TouchableOpacity
-                style={styles.removeImageButton}
-                onPress={() => setSelectedImage(null)}
-              >
-                <Ionicons name="close-circle" size={24} color={COLORS.white} />
+      {/* Full image viewer */}
+      <Modal transparent visible={!!viewingImage} animationType="fade" onRequestClose={() => setViewingImage(null)}>
+        <View style={styles.imgViewerBg}>
+          <TouchableOpacity style={styles.imgViewerClose} onPress={() => setViewingImage(null)}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+          {viewingImage && <Image source={{ uri: viewingImage }} style={styles.imgViewerFull} resizeMode="contain" />}
+        </View>
+      </Modal>
+
+      {/* Input area */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={styles.inputArea}>
+          {quotedMessage && (
+            <View style={styles.quotePreview}>
+              <View style={styles.quotePreviewBar} />
+              <Text style={styles.quotePreviewText} numberOfLines={1}>{quotedMessage.content}</Text>
+              <TouchableOpacity onPress={() => setQuotedMessage(null)}>
+                <Ionicons name="close" size={16} color={COLORS.gray500} />
               </TouchableOpacity>
             </View>
           )}
-          
+          {selectedImage && (
+            <View style={styles.selImgWrap}>
+              <Image source={{ uri: selectedImage }} style={styles.selImg} />
+              <TouchableOpacity style={styles.removeImgBtn} onPress={() => setSelectedImage(null)}>
+                <Ionicons name="close-circle" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
+          {isRecording && (
+            <View style={styles.recBar}>
+              <View style={styles.recDot} />
+              <Text style={styles.recText}>Recording… {fmtDuration(recordingDuration)}</Text>
+            </View>
+          )}
           <View style={styles.inputRow}>
-            <TouchableOpacity
-              style={styles.attachButton}
-              onPress={handlePickImage}
-              disabled={sending}
-            >
-              <Ionicons name="image-outline" size={24} color={COLORS.primary} />
+            <TouchableOpacity style={styles.inputAction} onPress={handlePickFile}>
+              <Ionicons name="attach-outline" size={24} color={COLORS.gray500} />
             </TouchableOpacity>
-            
+            <TouchableOpacity style={styles.inputAction} onPress={handlePickImage}>
+              <Ionicons name="image-outline" size={24} color={COLORS.gray500} />
+            </TouchableOpacity>
             <TextInput
-              style={styles.input}
-              placeholder="Type a message..."
-              placeholderTextColor={COLORS.gray500}
+              style={styles.textInput}
+              placeholder="Message…"
+              placeholderTextColor={COLORS.gray700}
               value={newMessage}
               onChangeText={setNewMessage}
-              multiline
-              maxLength={500}
-              editable={!!constellationId}
+              multiline maxLength={1000}
+              editable={!!constellationId && !isRecording}
             />
-            
             <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!newMessage.trim() && !selectedImage) || sending
-                  ? styles.sendButtonDisabled
-                  : {},
-              ]}
+              style={styles.inputAction}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+              disabled={!constellationId}
+            >
+              <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={24}
+                color={isRecording ? COLORS.error : COLORS.gray500} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sendBtn, (!newMessage.trim() && !selectedImage) && styles.sendBtnOff]}
               onPress={handleSend}
               disabled={(!newMessage.trim() && !selectedImage) || sending || !constellationId}
             >
-              {sending ? (
-                <ActivityIndicator size="small" color={COLORS.white} />
-              ) : (
-                <Ionicons name="send" size={20} color={COLORS.white} />
-              )}
+              {sending
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Ionicons name="send" size={18} color="#fff" />}
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
-        
-        <Modal
-          visible={showImageModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowImageModal(false)}
-        >
-          <View style={styles.modalContainer}>
-            <TouchableOpacity
-              style={styles.closeModalButton}
-              onPress={() => setShowImageModal(false)}
-            >
-              <Ionicons name="close" size={30} color={COLORS.white} />
-            </TouchableOpacity>
-            
-            {viewingImage && (
-              <Image
-                source={{ uri: viewingImage }}
-                style={styles.fullImage}
-                resizeMode="contain"
-              />
-            )}
-          </View>
-        </Modal>
-      </View>
-    </Screen>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
+  root: { flex: 1, backgroundColor: '#0A0A12' },
+  loadingBox: { flex: 1, backgroundColor: '#0A0A12', justifyContent: 'center', alignItems: 'center' },
+
+  // Chat header
+  chatHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: SPACING.m, paddingVertical: 10,
+    backgroundColor: '#111120', borderBottomWidth: 1, borderBottomColor: '#1F1F2E',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  partnerDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.success },
+  partnerName: { color: COLORS.white, fontSize: FONTS.h4, fontWeight: '700' },
+  partnerSub: { color: COLORS.gray500, fontSize: FONTS.caption, marginTop: 1 },
+  headerRight: { flexDirection: 'row', gap: 4 },
+  callBtn: { padding: 8, borderRadius: 20, backgroundColor: '#1A1A2E' },
+
+  // Messages
+  msgList: { padding: SPACING.m, paddingBottom: 16 },
+  bubbleWrapper: { marginBottom: 10 },
+  bwLeft: { alignItems: 'flex-start' },
+  bwRight: { alignItems: 'flex-end' },
+  bubble: { maxWidth: '78%', borderRadius: 14, padding: 10 },
+  bubbleMe: { backgroundColor: '#2B3FA0', borderBottomRightRadius: 2 },
+  bubbleThem: { backgroundColor: '#1E1E2E', borderBottomLeftRadius: 2, borderLeftWidth: 3, borderLeftColor: COLORS.accent },
+  msgImg: { width: 220, height: 180, borderRadius: 10, marginBottom: 4 },
+  msgText: { color: COLORS.white, fontSize: FONTS.body1, lineHeight: 22 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 4 },
+  msgTime: { color: 'rgba(255,255,255,0.4)', fontSize: 10 },
+
+  // Quote strip inside bubble
+  quoteStrip: { borderLeftWidth: 3, borderLeftColor: COLORS.accent, paddingLeft: 8, marginBottom: 6, opacity: 0.8 },
+  quoteText: { color: COLORS.gray400, fontSize: FONTS.caption },
+
+  // Voice note
+  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 190 },
+  playBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  waveform: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2, height: 28 },
+  waveBar: { width: 3, borderRadius: 2, backgroundColor: COLORS.gray700 },
+  voiceDur: { color: COLORS.gray400, fontSize: FONTS.caption, minWidth: 34, textAlign: 'right' },
+
+  // File
+  fileCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 10, minWidth: 180 },
+  fileName: { color: COLORS.white, fontSize: FONTS.body2, flexShrink: 1 },
+  fileSize: { color: COLORS.gray500, fontSize: FONTS.caption, marginTop: 2 },
+
+  // Reactions on bubble
+  reactRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 3, paddingHorizontal: 4 },
+  reactChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E1E2E', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: '#333350' },
+  reactChipMine: { borderColor: COLORS.accent },
+  reactEmoji: { fontSize: 14 },
+  reactCount: { color: COLORS.gray400, fontSize: 11, marginLeft: 3 },
+
+  // Reaction picker modal
+  reactOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
+  reactPicker: { flexDirection: 'row', backgroundColor: '#1E1E2E', borderRadius: 28, paddingHorizontal: 10, paddingVertical: 8, gap: 6, borderWidth: 1, borderColor: '#333350', elevation: 10 },
+  reactPickerItem: { padding: 6 },
+  reactPickerEmoji: { fontSize: 26 },
+
+  // Image viewer
+  imgViewerBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.93)', justifyContent: 'center', alignItems: 'center' },
+  imgViewerClose: { position: 'absolute', top: 48, right: 20, zIndex: 10, padding: 8 },
+  imgViewerFull: { width: '92%', height: '80%' },
+
+  // Empty
+  emptyBox: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 10, padding: SPACING.xl },
+  emptyTitle: { color: COLORS.white, fontSize: FONTS.h3, fontWeight: '600' },
+  emptySub: { color: COLORS.gray600, fontSize: FONTS.body2, textAlign: 'center' },
+
+  // Input area
+  inputArea: {
+    backgroundColor: '#111120', borderTopWidth: 1, borderTopColor: '#1F1F2E',
+    paddingTop: SPACING.s, paddingBottom: Platform.OS === 'ios' ? 28 : SPACING.s, paddingHorizontal: SPACING.s,
   },
-  loadingText: {
-    marginTop: SPACING.m,
-    color: COLORS.white,
-    fontSize: FONTS.body1,
+  quotePreview: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, paddingHorizontal: 4 },
+  quotePreviewBar: { width: 3, height: 30, backgroundColor: COLORS.accent, borderRadius: 2 },
+  quotePreviewText: { flex: 1, color: COLORS.gray400, fontSize: FONTS.caption },
+  selImgWrap: { position: 'relative', alignSelf: 'flex-start', marginBottom: 6 },
+  selImg: { width: 80, height: 80, borderRadius: 8 },
+  removeImgBtn: { position: 'absolute', top: -8, right: -8 },
+  recBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: SPACING.s, paddingVertical: 6, marginBottom: 4 },
+  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.error },
+  recText: { color: COLORS.error, fontSize: FONTS.body2 },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
+  inputAction: { paddingBottom: 8, paddingHorizontal: 3 },
+  textInput: {
+    flex: 1, backgroundColor: '#1A1A2E', borderRadius: 22, paddingHorizontal: SPACING.m, paddingVertical: 9,
+    maxHeight: 110, color: COLORS.white, fontSize: FONTS.body1, borderWidth: 1, borderColor: '#2A2A45',
   },
-  messagesList: {
-    padding: SPACING.m,
-    paddingBottom: 100,
-  },
-  messageContainer: {
-    maxWidth: '80%',
-    padding: SPACING.s,
-    borderRadius: 12,
-    marginBottom: SPACING.s,
-  },
-  currentUserMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: COLORS.primary,
-    borderBottomRightRadius: 0,
-  },
-  otherUserMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.card,
-    borderBottomLeftRadius: 0,
-  },
-  messageText: {
-    color: COLORS.white,
-    fontSize: FONTS.body1,
-  },
-  messageTime: {
-    color: COLORS.gray500,
-    fontSize: FONTS.caption,
-    marginTop: 4,
-    alignSelf: 'flex-end',
-  },
-  messageImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: SPACING.s,
-  },
-  inputContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.card,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray600,
-    padding: SPACING.s,
-  },
-  callActionsRow: {
-    flexDirection: 'row',
-    gap: SPACING.s,
-    marginBottom: SPACING.s,
-    flexWrap: 'wrap',
-  },
-  callActionPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.xs,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLORS.gray700,
-    paddingHorizontal: SPACING.s,
-    paddingVertical: 6,
-    backgroundColor: COLORS.input,
-  },
-  callActionText: {
-    color: COLORS.white,
-    fontSize: FONTS.caption,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    borderRadius: 20,
-    paddingHorizontal: SPACING.m,
-    paddingVertical: SPACING.s,
-    maxHeight: 100,
-    color: COLORS.white,
-    fontSize: FONTS.body1,
-  },
-  attachButton: {
-    padding: SPACING.s,
-    marginRight: SPACING.s,
-  },
-  sendButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: SPACING.s,
-  },
-  sendButtonDisabled: {
-    backgroundColor: COLORS.gray500,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: SPACING.l,
-  },
-  emptyText: {
-    color: COLORS.white,
-    fontSize: FONTS.h3,
-    marginTop: SPACING.m,
-  },
-  emptySubtext: {
-    color: COLORS.gray500,
-    fontSize: FONTS.body1,
-    textAlign: 'center',
-    marginTop: SPACING.s,
-  },
-  selectedImageContainer: {
-    position: 'relative',
-    marginBottom: SPACING.s,
-    alignSelf: 'flex-start',
-  },
-  selectedImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-  },
-  removeImageButton: {
-    position: 'absolute',
-    top: -10,
-    right: -10,
-    backgroundColor: COLORS.error,
-    borderRadius: 12,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  fullImage: {
-    width: '90%',
-    height: '80%',
-  },
-  closeModalButton: {
-    position: 'absolute',
-    top: 40,
-    right: 20,
-    zIndex: 10,
-  },
-  bondingContainer: {
-    backgroundColor: COLORS.card,
-    padding: SPACING.m,
-    marginHorizontal: SPACING.m,
-    marginTop: SPACING.m,
-    borderRadius: 12,
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  bondingText: {
-    color: COLORS.white,
-    fontSize: FONTS.h4,
-    marginBottom: SPACING.s,
-  },
-  bondingBarContainer: {
-    width: '100%',
-    height: 10,
-    backgroundColor: COLORS.background,
-    borderRadius: 5,
-    overflow: 'hidden',
-  },
-  bondingBar: {
-    height: '100%',
-    backgroundColor: COLORS.primary,
-  },
-  bondingValue: {
-    color: COLORS.primary,
-    fontSize: FONTS.body1,
-    marginTop: SPACING.s,
-  },
+  sendBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  sendBtnOff: { backgroundColor: '#2A2A45' },
 });
 
-export default ChatScreen; 
+export default ChatScreen;
