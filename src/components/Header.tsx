@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
@@ -16,6 +17,7 @@ interface HeaderProps {
 const AppHeader: React.FC<HeaderProps> = ({ title, showBack = false, rightContent }) => {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [initials, setInitials] = useState('?');
 
@@ -43,7 +45,8 @@ const AppHeader: React.FC<HeaderProps> = ({ title, showBack = false, rightConten
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
       {/* Left: back arrow OR logo mark */}
       {showBack ? (
         <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
@@ -82,20 +85,23 @@ const AppHeader: React.FC<HeaderProps> = ({ title, showBack = false, rightConten
           </TouchableOpacity>
         </View>
       )}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  safeArea: {
+    backgroundColor: '#0D0D0D',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1F1F2E',
+  },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.m,
-    paddingVertical: SPACING.s,
-    backgroundColor: '#0D0D0D',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1F1F2E',
-    height: 60,
+    paddingVertical: 14,
+    minHeight: 52,
   },
   logoMark: {
     width: 36,

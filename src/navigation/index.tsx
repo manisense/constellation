@@ -1,6 +1,5 @@
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -50,15 +49,12 @@ const Tab = createBottomTabNavigator();
 
 // ─── Tab screens wrapped with the shared header ────────────────────────────────
 
-const TabWrapper: React.FC<{ title: string; Screen: React.FC }> = ({ title, Screen }) => {
-  const insets = useSafeAreaInsets();
-  return (
-    <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: '#0D0D0D' }}>
-      <AppHeader title={title} />
-      <Screen />
-    </View>
-  );
-};
+const TabWrapper: React.FC<{ title: string; Screen: React.FC }> = ({ title, Screen }) => (
+  <View style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
+    <AppHeader title={title} />
+    <Screen />
+  </View>
+);
 
 const withHeader = (title: string, Component: React.FC) => () =>
   <TabWrapper title={title} Screen={Component} />;

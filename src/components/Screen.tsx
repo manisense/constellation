@@ -67,10 +67,7 @@ const Screen: React.FC<ScreenProps> = ({
         backgroundColor="#212121"
         translucent={true}
       />
-      {/* SafeAreaView for top inset (status bar) */}
-      <SafeAreaView className="flex-0 bg-gray-900 pt-0" style={styles.topSafeArea} />
-
-      {/* Header */}
+      {/* Header handles its own top safe area inset internally */}
       {showHeader && (
         <Header
           title={headerTitle}
