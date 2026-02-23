@@ -140,6 +140,11 @@ export const syncCurrentOneSignalPushDevice = async () => {
   try {
     await initializeOneSignal();
 
+    if (!isOneSignalInitialized) {
+      console.warn("OneSignal not initialized, skipping sync.");
+      return null;
+    }
+
     let subscriptionId: string | null = null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       subscriptionId = await getCurrentSubscriptionId();
